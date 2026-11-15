@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>Chaos Architect: Reverse Tower Defense & 1v1 Dual-Architect Duel</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com" rel="preconnect"/>
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --neon-cyan: #00f3ff;
+      --neon-pink: #ff0055;
+      --neon-amber: #ffaa00;
+      --neon-green: #00ff88;
+      --neon-purple: #9d4edd;
+      --bg-dark: #080b11;
+    }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(0, 243, 255, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(255, 0, 85, 0.05) 0%, transparent 40%),
+        linear-gradient(rgba(0, 243, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 243, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
+    }
+    .font-display { font-family: 'Chakra Petch', sans-serif; }
+    .game-grid {
+      display: grid;
+      grid-template-columns: repeat(15, minmax(0, 1fr));
+      grid-template-rows: repeat(15, minmax(0, 1fr));
+      gap: 2px;
+      user-select: none;
+    }
+    .grid-cell {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .scanline {
+      background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0, 0, 0, 0.3) 50%, rgba(0, 0, 0, 0.3));
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+    @keyframes pulsePath {
+      0%, 100% { opacity: 0.9; transform: scale(1); filter: drop-shadow(0 0 4px var(--neon-cyan)); }
+      50% { opacity: 0.35; transform: scale(0.85); filter: drop-shadow(0 0 1px var(--neon-cyan)); }
+    }
+    .predicted-dot { animation: pulsePath 1.5s infinite ease-in-out; }
+    @keyframes agentFloat {
+      0%, 100% { transform: translateY(0px) scale(1); }
+      50% { transform: translateY(-2px) scale(1.06); }
+    }
+    .agent-active { animation: agentFloat 0.8s infinite ease-in-out; }
+    @keyframes radarWave {
+      0% { transform: scale(0.4); opacity: 1; border-color: #00f3ff; }
+      100% { transform: scale(3.5); opacity: 0; border-color: #ff0055; }
+    }
+    .sonar-ping { animation: radarWave 0.85s cubic-bezier(0.1, 0.8, 0.3, 1) forwards; }
+    .cell-shrouded { background-color: #03060c !important; border-color: rgba(15, 23, 42, 0.9) !important; }
+    .cell-dimmed { opacity: 0.45; filter: saturate(0.6); }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: rgba(13, 19, 33, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(0, 243, 255, 0.3); border-radius: 2px; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-200 flex flex-col justify-between selection:bg-cyan-500 selection:text-black">
+  <!-- HUD Header -->
+  <header class="border-b border-cyan-900/50 bg-[#06090e]/95 backdrop-blur sticky top-0 z-30 px-3 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded bg-cyan-950 border border-cyan-400 flex items-center justify-center text-cyan-400 font-bold shadow-[0_0_10px_rgba(0,243,255,0.4)]">
+        Ω
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-base sm:text-lg md:text-xl font-bold tracking-wider font-display uppercase bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-sky-200 to-pink-500">
+            Chaos Architect
+          </h1>
+          <span class="text-xs px-2 py-0.5 border border-pink-500/50 rounded text-pink-400 font-mono tracking-normal" id="versionTag">v2.5-duel</span>
+        </div>
+        <p class="text-[11px] text-cyan-500/70 font-mono tracking-tight hidden sm:block">Heuristic Reverse Matrix // Multi-Agent Trapping & 1v1 Duel Engine</p>
+      </div>
+    </div>
+
+    <!-- Header Mode Switcher -->
+    <div class="flex items-center gap-1.5 p-1 bg-black/70 border border-slate-800 rounded-lg">
+      <button class="px-3 py-1 text-xs font-mono font-bold rounded flex items-center gap-1.5 transition bg-cyan-500 text-black shadow-[0_0_10px_rgba(0,243,255,0.4)]" id="modeAiBtn">
+        <span>🤖</span> AI Mode
+      </button>
+      <button class="px-3 py-1 text-xs font-mono font-bold rounded flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition" id="modeDuelBtn">
+        <span>⚔️</span> 1v1 Pass & Play Duel
+      </button>
+    </div>
+
+    <!-- AI Mode Controls -->
+    <div class="flex items-center flex-wrap gap-2 text-xs" id="aiHeaderControls">
+      <div class="flex items-center gap-2 bg-slate-900/90 border border-cyan-800/40 rounded-lg px-2.5 py-1">
+        <span class="text-slate-400 font-mono">Target AI:</span>
+        <select class="bg-black/60 border border-cyan-500/40 text-cyan-300 rounded px-2 py-1 font-mono focus:outline-none focus:border-cyan-400 cursor-pointer text-xs" id="levelSelect">
+          <option value="1">L1: Greedy Scout [f=h]</option>
+          <option value="2">L2: The Calculator [f=g]</option>
+          <option selected value="3">L3: Master Tactician [f=g+h]</option>
+          <option value="4">L4: Radar Drone [Sonar+A*]</option>
+          <option value="5">L5: Twin Agents [DFS+Tank]</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-1.5 font-mono">
+        <button class="px-2.5 py-1 text-xs rounded border border-cyan-500/50 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 transition flex items-center gap-1" id="shareMazeBtn" title="Export Maze Code">
+          Share
+        </button>
+        <button class="px-2.5 py-1 text-xs rounded border border-purple-500/50 bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 transition flex items-center gap-1" id="importMazeBtn" title="Import Maze Code">
+          Import
+        </button>
+      </div>
+    </div>
+
+    <!-- Duel Mode Active Header Controls -->
+    <div class="hidden flex items-center flex-wrap gap-2 text-xs font-mono" id="duelHeaderControls">
+      <div class="px-2.5 py-1 rounded bg-black/60 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1.5" id="duelStageIndicator">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+        <span>STAGE 1: P1 BUILD MAZE A</span>
+      </div>
+      <div class="px-2.5 py-1 rounded font-bold border flex items-center gap-1.5 bg-cyan-950/70 border-cyan-400 text-cyan-300" id="activePlayerBanner">
+        <span>👤 P1 (CYAN ARCHITECT)</span>
+      </div>
+      <div class="hidden items-center gap-1 px-2.5 py-1 rounded bg-black/60 border border-cyan-500/30 text-cyan-300" id="duelRadarCounter">
+        <span>📡 RADAR:</span>
+        <span class="font-bold text-amber-300" id="radarCountText">2/2</span>
+      </div>
+    </div>
+
+    <!-- Status Badges: Gold & HP -->
+    <div class="flex items-center gap-3 text-xs font-mono">
+      <div class="flex items-center gap-1.5 bg-black/50 px-3 py-1 rounded border border-amber-500/30">
+        <span class="text-amber-400 font-bold">GOLD:</span>
+        <span class="text-amber-300 font-bold text-sm tracking-wider" id="goldDisplay">180G</span>
+      </div>
+      <div class="flex items-center gap-2 bg-black/50 px-3 py-1 rounded border border-pink-500/30">
+        <span class="text-pink-400 font-bold" id="energyLabel">AI ENERGY:</span>
+        <div class="w-20 sm:w-24 bg-slate-800 h-2.5 rounded-full overflow-hidden border border-pink-900">
+          <div class="bg-gradient-to-r from-pink-500 to-red-400 h-full w-full transition-all duration-300" id="energyBar"></div>
+        </div>
+        <span class="text-pink-300 font-bold min-w-[42px] text-right" id="energyText">50/50</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Game Workspace -->
+  <main class="flex-1 max-w-[1720px] w-full mx-auto p-2 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
+    <!-- LEFT COLUMN: Arsenal & Rules (3 cols) -->
+    <section class="lg:col-span-3 flex flex-col gap-3 order-2 lg:order-1">
+      <!-- Tile Arsenal Card -->
+      <div class="bg-[#0b101b]/95 border border-cyan-900/60 rounded-xl p-3 shadow-lg backdrop-blur flex flex-col gap-2.5" id="paletteCard">
+        <div class="flex items-center justify-between border-b border-cyan-900/40 pb-2">
+          <span class="font-display font-bold text-sm tracking-wide text-cyan-400 flex items-center gap-1.5" id="paletteTitle">
+            TILE ARSENAL (v2.5)
+          </span>
+          <span class="text-[10px] text-purple-400 font-mono" id="portalPairIndicator">PORTALS: 0/2</span>
+        </div>
+        <div class="grid grid-cols-1 gap-1.5 max-h-[380px] lg:max-h-[460px] overflow-y-auto pr-1" id="tilePalette">
+          <!-- Populated by JS -->
+        </div>
+        <div class="text-[11px] text-slate-400 font-mono bg-black/40 p-2 rounded border border-slate-800 space-y-1">
+          <div class="flex items-center justify-between text-cyan-300 font-semibold">
+            <span>Click One-Way:</span>
+            <span class="text-slate-400 font-normal">Rotate direction</span>
+          </div>
+          <div class="flex items-center justify-between text-cyan-300 font-semibold">
+            <span>Right-Click:</span>
+            <span class="text-slate-400 font-normal">Demolish / 100% refund</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Duel Infiltration Controls (During Stages 3 & 4) -->
+      <div class="hidden bg-[#0b101b]/95 border border-amber-500/50 rounded-xl p-3 shadow-lg flex flex-col gap-2.5 font-mono" id="duelNavControlsPanel">
+        <div class="flex items-center justify-between border-b border-amber-500/30 pb-2">
+          <span class="font-display font-bold text-xs tracking-wide text-amber-400 flex items-center gap-1.5">
+            <span>🎮</span> INFILTRATION CONTROLS
+          </span>
+          <span class="text-[10px] text-slate-400">WASD / ARROWS</span>
+        </div>
+        <p class="text-[11px] text-slate-300 leading-snug">
+          Guide your operative through the shrouded enemy maze under Fog of War. Watch out for Trojan Batteries and Mirage Traps!
+        </p>
+        <!-- On-Screen D-Pad -->
+        <div class="flex flex-col items-center gap-1 my-1">
+          <button class="w-10 h-9 rounded bg-slate-900 border border-cyan-500/50 text-cyan-300 font-bold hover:bg-cyan-950 active:scale-95 transition" id="dpadUp">▲</button>
+          <div class="flex gap-2">
+            <button class="w-10 h-9 rounded bg-slate-900 border border-cyan-500/50 text-cyan-300 font-bold hover:bg-cyan-950 active:scale-95 transition" id="dpadLeft">◀</button>
+            <button class="w-10 h-9 rounded bg-slate-800 border border-slate-600 text-slate-400 font-bold cursor-default">•</button>
+            <button class="w-10 h-9 rounded bg-slate-900 border border-cyan-500/50 text-cyan-300 font-bold hover:bg-cyan-950 active:scale-95 transition" id="dpadRight">▶</button>
+          </div>
+          <button class="w-10 h-9 rounded bg-slate-900 border border-cyan-500/50 text-cyan-300 font-bold hover:bg-cyan-950 active:scale-95 transition" id="dpadDown">▼</button>
+        </div>
+        <button class="w-full py-2 px-3 rounded-lg font-bold text-xs uppercase tracking-wide bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-[0_0_10px_rgba(0,243,255,0.4)] transition flex items-center justify-center gap-2" id="duelRadarBtn">
+          <span>📡</span> TRIGGER RADAR SCAN (SPACE)
+        </button>
+      </div>
+
+      <!-- Heuristic Intel / Duel Rules -->
+      <div class="bg-[#0b101b]/90 border border-slate-800 rounded-xl p-3 shadow-lg flex flex-col gap-2 font-mono text-xs" id="intelCard">
+        <div class="flex items-center justify-between text-slate-300 font-bold border-b border-slate-800 pb-1.5">
+          <span class="text-pink-400 flex items-center gap-1.5" id="intelTitle">
+            <span class="w-2 h-2 rounded-full bg-pink-500 animate-ping"></span>
+            ACTIVE HEURISTIC INTEL
+          </span>
+          <span class="text-[11px] px-1.5 py-0.5 rounded bg-pink-950/70 border border-pink-500/40 text-pink-300 font-bold" id="heuristicFormulaBadge">f = g + h</span>
+        </div>
+        <p class="text-slate-300 text-[11px] leading-relaxed pt-0.5" id="heuristicDesc">
+          Master Tactician balances real movement cost g(n) with estimated distance h(n). Trap lures must balance perceived detour costs!
+        </p>
+      </div>
+
+      <!-- Quick Legend -->
+      <div class="bg-[#0b101b]/80 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 space-y-1 font-mono">
+        <div class="text-slate-300 font-bold text-xs mb-1">GRID LEGEND</div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-green-500/40 border border-green-400 flex items-center justify-center text-[8px] text-green-300 font-bold">S</div>
+          <span>Start Point [1, 1] - Ingress</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-amber-500/40 border border-amber-400 flex items-center justify-center text-[8px] text-amber-300 font-bold">★</div>
+          <span>Treasure Vault [13, 13] - Goal</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded border border-purple-500 text-purple-300 flex items-center justify-center text-[8px] font-bold">QA</div>
+          <span>Quantum Portal Pair (A ⇄ B Teleport)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded border border-blue-400 text-blue-300 flex items-center justify-center text-[9px]">→</div>
+          <span>One-Way Gate (Unidirectional Only)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-emerald-950/80 border border-emerald-400 text-emerald-300 flex items-center justify-center text-[9px]">⚡</div>
+          <span>Energy Cell (+10 HP) / Trojan Bait</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CENTER COLUMN: 15x15 Matrix Canvas (6 cols) -->
+    <section class="lg:col-span-6 flex flex-col items-center gap-3 order-1 lg:order-2">
+      <div class="w-full bg-[#080d17]/95 border border-cyan-800/40 rounded-xl p-3 sm:p-3.5 shadow-2xl flex flex-col items-center relative overflow-hidden">
+        <!-- Top Toolbar -->
+        <div class="w-full flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-cyan-950">
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-0.5 rounded text-xs font-bold tracking-wider font-display uppercase bg-cyan-950 border border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(0,243,255,0.3)]" id="phaseBadge">
+              ARCHITECT PHASE
+            </span>
+            <span class="text-xs font-mono text-slate-400" id="stepCounter">Step: 0</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="px-2.5 py-1 text-xs rounded font-mono font-semibold border border-purple-500/40 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60 transition flex items-center gap-1.5" id="toggleBrainBtn">
+              Brain View: <span id="brainStateText">OFF</span>
+            </button>
+            <button class="px-2 py-1 text-xs rounded font-mono font-semibold border border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 transition" id="speedBtn">
+              1x Speed
+            </button>
+          </div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div class="absolute top-12 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-300 opacity-0 translate-y-[-10px] w-11/12 max-w-md" id="toastContainer">
+          <div class="bg-cyan-950/95 border border-cyan-400 text-cyan-200 text-xs px-3 py-2 rounded-lg text-center font-mono shadow-[0_0_20px_rgba(0,243,255,0.5)]" id="toastMessage">
+            Notification
+          </div>
+        </div>
+
+        <!-- 15x15 Matrix Canvas -->
+        <div class="relative w-full max-w-[560px] p-1 sm:p-2 bg-[#05080f] rounded-lg border border-cyan-950 shadow-inner select-none">
+          <div class="grid grid-cols-15 text-[8px] text-cyan-700 font-mono text-center pb-1 select-none">
+            <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span>
+          </div>
+          <div class="relative aspect-square w-full">
+            <div class="game-grid w-full h-full" id="gridElement"></div>
+            <div class="absolute inset-0 scanline pointer-events-none opacity-40 rounded-lg"></div>
+          </div>
+        </div>
+
+        <!-- AI Mode Action Controls -->
+        <div class="w-full flex flex-wrap items-center justify-between gap-2 mt-3 pt-2 border-t border-cyan-950" id="aiActionFooter">
+          <div class="flex items-center gap-2">
+            <button class="px-4 sm:px-5 py-2 rounded-lg font-display font-bold text-xs sm:text-sm tracking-wider uppercase bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black shadow-[0_0_15px_rgba(0,243,255,0.4)] transition transform active:scale-95 flex items-center gap-2" id="startWaveBtn">
+              Deploy AI Ingress
+            </button>
+            <button class="px-3 py-2 rounded-lg font-mono text-xs font-semibold bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 transition" id="resetWaveBtn">
+              Reset Wave
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="px-3 py-2 rounded-lg font-mono text-xs text-red-400 border border-red-950 hover:border-red-600/50 hover:bg-red-950/20 transition" id="clearAllBtn">
+              Clear Grid
+            </button>
+          </div>
+        </div>
+
+        <!-- Duel Specific Action Controls -->
+        <div class="hidden w-full flex flex-wrap items-center justify-between gap-2 mt-3 pt-2 border-t border-cyan-950" id="duelActionFooter">
+          <div class="flex items-center gap-2">
+            <button class="px-4 sm:px-5 py-2 rounded-lg font-display font-bold text-xs sm:text-sm tracking-wider uppercase bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] transition transform active:scale-95 flex items-center gap-2" id="duelStageActionBtn">
+              <span>🔒</span> LOCK P1 MAZE & PASS
+            </button>
+            <button class="px-3 py-2 rounded-lg font-mono text-xs font-semibold bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 transition" id="duelResetCurrentBtn">
+              Reset Grid
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="px-3 py-2 rounded-lg font-mono text-xs text-red-400 border border-red-950 hover:border-red-600/50 hover:bg-red-950/20 transition" id="duelAbortBtn">
+              Abort Match
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: Telemetry & Logs (3 cols) -->
+    <section class="lg:col-span-3 flex flex-col gap-3 order-3">
+      <div class="bg-[#0b101b]/95 border border-cyan-900/60 rounded-xl p-3 shadow-lg backdrop-blur flex flex-col gap-2.5 font-mono">
+        <div class="flex items-center justify-between border-b border-cyan-900/40 pb-2">
+          <span class="font-display font-bold text-sm tracking-wide text-cyan-400 flex items-center gap-1.5">
+            LIVE TELEMETRY
+          </span>
+          <span class="text-[10px] text-green-400 animate-pulse" id="telemetryStatus">● STANDBY</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">Predicted Steps</div>
+            <div class="text-cyan-300 font-bold text-base mt-0.5" id="statPathLen">24</div>
+          </div>
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">Estimated Drain</div>
+            <div class="text-amber-400 font-bold text-base mt-0.5" id="statEstDrain">24 HP</div>
+          </div>
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">Traps Armed</div>
+            <div class="text-pink-400 font-bold text-base mt-0.5" id="statTrapsArmed">0</div>
+          </div>
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase">Special Tiles</div>
+            <div class="text-purple-400 font-bold text-base mt-0.5" id="statSpecialTiles">0</div>
+          </div>
+        </div>
+        <!-- Real-Time Node Inspector -->
+        <div class="bg-black/70 p-2 rounded border border-cyan-900/40 text-[11px] space-y-1">
+          <div class="text-slate-400 font-semibold border-b border-slate-800 pb-1 flex justify-between">
+            <span>OPERATIVE COORDS:</span>
+            <span class="text-cyan-300 font-bold" id="inspectCoords">[1, 1]</span>
+          </div>
+          <div class="flex justify-between pt-0.5">
+            <span class="text-slate-400">Tile Underneath:</span>
+            <span class="text-slate-200" id="inspectTileType">Start Ingress</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Remaining Real HP:</span>
+            <span class="text-pink-400 font-bold" id="inspectRemainingHP">50</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Execution Log -->
+      <div class="bg-[#0b101b]/95 border border-slate-800 rounded-xl p-3 shadow-lg flex flex-col gap-2 font-mono flex-1">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+          <span class="font-display font-bold text-xs tracking-wider text-slate-300 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            NEURAL STEP LOG
+          </span>
+          <button class="text-[10px] text-slate-500 hover:text-slate-300" id="clearLogBtn">CLEAR</button>
+        </div>
+        <div class="h-52 lg:h-60 overflow-y-auto pr-1 text-[11px] space-y-1.5 flex flex-col font-mono" id="logStream">
+          <div class="text-slate-500 text-[10px] italic">System v2.5 initialized. Ready for architect duel.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- PRIVACY PASS-DEVICE OVERLAY MODAL (Duel Mode) -->
+  <div class="fixed inset-0 bg-[#05080f]/98 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300" id="passScreenModal">
+    <div class="bg-[#0b1322] border-2 border-amber-500/70 rounded-2xl max-w-lg w-full p-6 text-center shadow-[0_0_40px_rgba(245,158,11,0.3)] font-mono space-y-4">
+      <div class="w-16 h-16 mx-auto rounded-full bg-amber-950/80 border border-amber-400 flex items-center justify-center text-3xl shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+        🔄
+      </div>
+      <div>
+        <div class="text-xs uppercase tracking-widest text-amber-400 font-bold mb-1">PRIVACY SHIELD ENGAGED</div>
+        <h2 class="font-display font-bold text-xl sm:text-2xl text-white tracking-wide uppercase" id="passModalTitle">
+          Pass Device to Player 2
+        </h2>
+      </div>
+      <div class="bg-black/60 rounded-xl p-4 text-xs text-slate-300 text-left border border-slate-800 space-y-2">
+        <p class="text-amber-300 font-bold">⚠️ IMPORTANT - EYES OFF THE SCREEN!</p>
+        <p id="passModalBody">
+          Player 1 has locked in Maze A. Pass this device to <span class="text-amber-400 font-bold">Player 2</span>.
+        </p>
+      </div>
+      <button class="w-full py-3 rounded-xl font-display font-bold text-sm tracking-wider uppercase bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.4)] transition transform active:scale-95" id="passModalReadyBtn">
+        Ready (Player 2)
+      </button>
+    </div>
+  </div>
+
+  <!-- FINAL SHOWDOWN SCOREBOARD MODAL (Duel Mode) -->
+  <div class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 hidden opacity-0 transition-opacity duration-300" id="showdownModal">
+    <div class="bg-[#0b1424] border-2 border-cyan-400 rounded-2xl max-w-2xl w-full p-4 sm:p-6 text-center shadow-[0_0_50px_rgba(0,243,255,0.4)] relative font-mono">
+      <div class="inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-amber-500/20 border border-amber-400 text-amber-300 mb-2" id="showdownWinnerBadge">
+        👑 DUEL CHAMPION: PLAYER 1
+      </div>
+      <h2 class="font-display font-bold text-2xl sm:text-3xl uppercase tracking-wider text-cyan-300 mb-1">
+        FINAL ARCHITECT SHOWDOWN
+      </h2>
+      <p class="text-slate-400 text-xs mb-4">
+        Symmetric Infiltration complete. Comparing survival rates, steps, and budget efficiency.
+      </p>
+
+      <div class="grid grid-cols-2 gap-3 mb-5 text-left text-xs">
+        <!-- Player 1 Card -->
+        <div class="bg-black/60 border border-cyan-500/60 rounded-xl p-3 sm:p-4 relative" id="p1ScoreCard">
+          <div class="flex items-center justify-between border-b border-cyan-900/60 pb-2 mb-2">
+            <span class="font-bold text-cyan-300 font-display text-sm">PLAYER 1</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" id="p1StatusBadge">ESCAPED</span>
+          </div>
+          <div class="space-y-1.5">
+            <div class="flex justify-between text-slate-400"><span>Final HP:</span> <span class="text-pink-400 font-bold" id="p1HPVal">35 / 50</span></div>
+            <div class="flex justify-between text-slate-400"><span>Steps Taken:</span> <span class="text-slate-200 font-bold" id="p1StepsVal">28</span></div>
+            <div class="flex justify-between text-slate-400"><span>Gold Saved:</span> <span class="text-amber-300 font-bold" id="p1GoldVal">45G</span></div>
+            <div class="flex justify-between text-slate-400"><span>Traps Hit:</span> <span class="text-red-400" id="p1TrapsVal">2</span></div>
+          </div>
+        </div>
+
+        <!-- Player 2 Card -->
+        <div class="bg-black/60 border border-amber-500/60 rounded-xl p-3 sm:p-4 relative" id="p2ScoreCard">
+          <div class="flex items-center justify-between border-b border-amber-900/60 pb-2 mb-2">
+            <span class="font-bold text-amber-300 font-display text-sm">PLAYER 2</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" id="p2StatusBadge">TRAPPED</span>
+          </div>
+          <div class="space-y-1.5">
+            <div class="flex justify-between text-slate-400"><span>Final HP:</span> <span class="text-pink-400 font-bold" id="p2HPVal">0 / 50</span></div>
+            <div class="flex justify-between text-slate-400"><span>Steps Taken:</span> <span class="text-slate-200 font-bold" id="p2StepsVal">19</span></div>
+            <div class="flex justify-between text-slate-400"><span>Gold Saved:</span> <span class="text-amber-300 font-bold" id="p2GoldVal">20G</span></div>
+            <div class="flex justify-between text-slate-400"><span>Traps Hit:</span> <span class="text-red-400" id="p2TrapsVal">4</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2.5 justify-center">
+        <button class="px-4 py-2 rounded-lg font-mono text-xs font-bold bg-cyan-950 border border-cyan-400 text-cyan-300 hover:bg-cyan-900 transition flex items-center gap-1.5" id="duelRematchBtn">
+          <span>⚔️</span> Rematch (New Duel)
+        </button>
+        <button class="px-4 py-2 rounded-lg font-mono text-xs font-semibold bg-slate-900 border border-slate-700 text-slate-300 hover:border-slate-500 transition" id="duelExitToAiBtn">
+          Exit to AI Mode
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share / Import Modal -->
+  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300" id="importModal">
+    <div class="bg-[#0b121e] border border-purple-500/60 rounded-2xl max-w-lg w-full p-5 text-left shadow-[0_0_30px_rgba(157,78,221,0.3)] font-mono">
+      <div class="flex items-center justify-between border-b border-purple-900/50 pb-2 mb-3">
+        <h3 class="font-display font-bold text-lg text-purple-300 flex items-center gap-2">
+          <span>⚡</span> IMPORT MAZE MATRIX
+        </h3>
+        <button class="text-slate-400 hover:text-slate-200 text-sm" id="closeImportModalBtn">✕</button>
+      </div>
+      <p class="text-slate-400 text-xs mb-3">
+        Paste your Base64 maze string below:
+      </p>
+      <textarea class="w-full bg-black/70 border border-purple-900/80 rounded-lg p-2.5 text-xs text-purple-200 font-mono focus:outline-none focus:border-purple-400 mb-3" id="importCodeInput" rows="3"></textarea>
+      <div class="flex justify-end gap-2">
+        <button class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 text-xs" id="cancelImportBtn">Cancel</button>
+        <button class="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs" id="executeImportBtn">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Victory Outcome Modal -->
+  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300" id="outcomeModal">
+    <div class="bg-[#0d1424] border-2 rounded-2xl max-w-md w-full p-6 text-center shadow-2xl relative overflow-hidden font-mono" id="modalCard">
+      <div class="flex justify-center items-center gap-2 mb-3">
+        <span class="text-3xl text-amber-400 filter drop-shadow">★</span>
+        <span class="text-4xl text-amber-400 filter drop-shadow -translate-y-1">★</span>
+        <span class="text-3xl text-amber-400 filter drop-shadow">★</span>
+      </div>
+      <h2 class="font-display font-bold text-2xl uppercase tracking-wider mb-1 text-cyan-400" id="modalTitle">
+        MISSION SUCCESS
+      </h2>
+      <p class="text-slate-300 text-xs leading-relaxed mb-4" id="modalSubtitle">
+        AI Explorer depleted of all kinetic reserve.
+      </p>
+      <div class="flex flex-wrap gap-2 justify-center">
+        <button class="px-3.5 py-2 rounded-lg font-mono text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition" id="modalReplayBtn">
+          Replay Wave
+        </button>
+        <button class="px-4 py-2 rounded-lg font-display font-bold text-xs uppercase bg-cyan-400 hover:bg-cyan-300 text-black shadow-lg transition" id="modalNextBtn">
+          Next Wave
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer Info -->
+  <footer class="border-t border-cyan-950/60 bg-[#06090e] px-4 py-1.5 text-center text-[10px] text-slate-500 font-mono flex flex-wrap justify-between items-center">
+    <span>Chaos Architect v2.5 • 1v1 Dual-Architect Duel</span>
+    <span class="text-cyan-500/70">Quantum Teleport • Fog of War • Trojan Batteries</span>
+  </footer>
+
+  <!-- Single-File Engine Script -->
+  <script>
+    const GRID_SIZE = 15;
+    const START_POS = { r: 1, c: 1 };
+    const GOAL_POS = { r: 13, c: 13 };
+
+    const TILE_TYPES = {
+      EMPTY: { id: 'EMPTY', name: 'Empty Floor', gold: 0, perceivedCost: 1, realDrain: 1, colorClass: 'bg-slate-900/60 border-slate-800/50', icon: '', desc: 'Floor (1 cost, 1 drain)' },
+      WALL: { id: 'WALL', name: 'Solid Wall', gold: 10, perceivedCost: Infinity, realDrain: 0, colorClass: 'bg-cyan-950 border-cyan-500 text-cyan-300', icon: '█', desc: 'Impassable barrier blocks path' },
+      SWAMP: { id: 'SWAMP', name: 'Swamp Field', gold: 15, perceivedCost: 5, realDrain: 5, colorClass: 'bg-emerald-950/90 border-emerald-500/60 text-emerald-400', icon: '≈', desc: 'Visible bog (5 cost, 5 drain)' },
+      MIRAGE: { id: 'MIRAGE', name: 'Mirage Trap', gold: 25, perceivedCost: 1, revealedCost: 12, realDrain: 12, colorClass: 'bg-purple-950/80 border-purple-500/70 text-pink-400', icon: '✦', desc: 'Camouflaged! Looks like floor. Inflicts 12 HP.' },
+      BEACON: { id: 'BEACON', name: 'False Beacon', gold: 35, perceivedCost: 1, realDrain: 2, radius: 2, heuristicDiscount: 4, colorClass: 'bg-amber-950/80 border-amber-400 text-amber-300', icon: '▲', desc: 'Decoy beacon: reduces h(n) by 4 in 2-tile radius.' },
+      PORTAL: { id: 'PORTAL', name: 'Quantum Portals (Pair)', gold: 40, perceivedCost: 1, realDrain: 1, colorClass: 'bg-indigo-950/90 border-purple-400 text-purple-300', icon: '◎', desc: 'Pair A & B: instant teleport (1 step cost).' },
+      GATE: { id: 'GATE', name: 'One-Way Gate', gold: 20, perceivedCost: 1, realDrain: 1, colorClass: 'bg-blue-950/90 border-blue-400 text-cyan-300', icon: '→', desc: 'Unidirectional conduit (N,E,S,W). Click to rotate.' },
+      TROJAN: { id: 'TROJAN', name: 'Trojan Battery', gold: 35, perceivedCostBonus: -5, revealedCost: Infinity, realDrain: 15, colorClass: 'bg-emerald-950/80 border-emerald-400 text-emerald-300', icon: '🔋', desc: 'Disguised bait! -15 HP & turns into permanent Solid Wall.' },
+      BATTERY: { id: 'BATTERY', name: 'Real Energy Cell', gold: 15, perceivedCost: 0.5, realDrain: -10, colorClass: 'bg-green-950/80 border-green-400 text-green-300', icon: '⚡', desc: 'Genuine energy pod! Grants +10 HP (max 60 HP).' },
+      ERASER: { id: 'ERASER', name: 'Eraser', gold: 0, perceivedCost: 1, realDrain: 1, colorClass: 'bg-red-950/40 border-red-500/50 text-red-300', icon: '✕', desc: 'Demolish tile with 100% Gold refund' }
+    };
+
+    const AI_LEVELS = {
+      1: { name: 'Greedy Scout', type: 'greedy', budget: 120, maxEnergy: 35, formulaBadge: 'f = h', desc: 'Greedy Best-First search. Fixates only on h(n).' },
+      2: { name: 'The Calculator', type: 'dijkstra', budget: 150, maxEnergy: 45, formulaBadge: 'f = g', desc: 'Dijkstra optimizer. Computes lowest accumulated cost.' },
+      3: { name: 'Master Tactician', type: 'astar', budget: 180, maxEnergy: 50, formulaBadge: 'f = g + h', desc: 'Full A* heuristic pathfinder balancing cost and distance.' },
+      4: { name: 'Radar Drone', type: 'radar', budget: 200, maxEnergy: 55, formulaBadge: 'Sonar + A*', desc: 'BFS/A* Hybrid with Sonar. Emits pulse every 4 steps.' },
+      5: { name: 'Twin Agents', type: 'twins', budget: 240, maxEnergy: 85, formulaBadge: 'DFS + Tank', desc: 'Scout triggers traps; heavy Tank follows behind.' }
+    };
+
+    let gameMode = 'AI';
+    let currentLevel = 3;
+    let gold = AI_LEVELS[currentLevel].budget;
+    let aiEnergy = AI_LEVELS[currentLevel].maxEnergy;
+    let isExecuting = false;
+    let activeTool = 'WALL';
+    let isMouseDown = false;
+    let brainView = false;
+    let stepCount = 0;
+    let executionTimer = null;
+    let agentPosition = { r: 1, c: 1 };
+    let agentTrapsTriggered = 0;
+    let portalPair = { a: null, b: null };
+    let grid = [];
+
+    // Duel State
+    let duelStage = 1;
+    let p1MazeSnapshot = null;
+    let p1Portals = { a: null, b: null };
+    let p1GoldSaved = 0;
+
+    let p2MazeSnapshot = null;
+    let p2Portals = { a: null, b: null };
+    let p2GoldSaved = 0;
+
+    let duelOperative = {
+      player: 1,
+      r: 1, c: 1,
+      hp: 50, maxHp: 60, baseHp: 50,
+      steps: 0, trapsTriggered: 0, radarUses: 2,
+      escaped: false,
+      visited: new Set()
+    };
+
+    let p1InfiltrationResult = null;
+    let p2InfiltrationResult = null;
+
+    function init() {
+      buildTilePalette();
+      resetGridState();
+      renderGridDOM();
+      setupEventListeners();
+      applyLevelSettings(currentLevel);
+    }
+
+    function resetGridState() {
+      grid = [];
+      portalPair = { a: null, b: null };
+      for (let r = 0; r < GRID_SIZE; r++) {
+        grid[r] = [];
+        for (let c = 0; c < GRID_SIZE; c++) {
+          grid[r][c] = { r, c, type: 'EMPTY', dir: 'E', revealed: false, spentGold: 0, portalTag: null };
+        }
+      }
+      agentPosition = { ...START_POS };
+      stepCount = 0;
+      agentTrapsTriggered = 0;
+      updatePortalIndicator();
+    }
+
+    function cloneGrid(src) {
+      return src.map(row => row.map(cell => ({ ...cell })));
+    }
+
+    function setGameMode(mode) {
+      if (isExecuting) stopExecution();
+      gameMode = mode;
+
+      const modeAiBtn = document.getElementById('modeAiBtn');
+      const modeDuelBtn = document.getElementById('modeDuelBtn');
+      const aiControls = document.getElementById('aiHeaderControls');
+      const duelControls = document.getElementById('duelHeaderControls');
+      const aiFooter = document.getElementById('aiActionFooter');
+      const duelFooter = document.getElementById('duelActionFooter');
+      const duelNav = document.getElementById('duelNavControlsPanel');
+      const paletteCard = document.getElementById('paletteCard');
+
+      if (mode === 'AI') {
+        modeAiBtn.className = 'px-3 py-1 text-xs font-mono font-bold rounded flex items-center gap-1.5 transition bg-cyan-500 text-black shadow-[0_0_10px_rgba(0,243,255,0.4)]';
+        modeDuelBtn.className = 'px-3 py-1 text-xs font-mono font-bold rounded flex items-center gap-1.5 text-slate-400 hover:text-amber-300 transition';
+        aiControls.classList.remove('hidden');
+        duelControls.classList.add('hidden');
+        aiFooter.classList.remove('hidden');
+        duelFooter.classList.add('hidden');
+        duelNav.classList.add('hidden');
+        paletteCard.classList.remove('hidden');
+
+        document.getElementById('energyLabel').textContent = 'AI ENERGY:';
+        document.getElementById('versionTag').textContent = 'v2.5-matrix';
+        buildTilePalette();
+        resetGridState();
+        applyLevelSettings(currentLevel);
+        renderGridDOM();
+        logEvent('Switched to Single Player AI Heuristic Mode.', 'cyan');
+      } else {
+        modeAiBtn.className = 'px-3 py-1 text-xs font-mono font-bold rounded flex items-center gap-1.5 text-slate-400 hover:text-cyan-300 transition';
+        modeDuelBtn.className = 'px-3 py-1 text-xs font-mono font-bold rounded flex items-center gap-1.5 transition bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-[0_0_10px_rgba(245,158,11,0.4)]';
+        aiControls.classList.add('hidden');
+        duelControls.classList.remove('hidden');
+        aiFooter.classList.add('hidden');
+        duelFooter.classList.remove('hidden');
+        document.getElementById('versionTag').textContent = '1v1-duel';
+        startDuelMatch();
+      }
+    }
+
+    function startDuelMatch() {
+      duelStage = 1;
+      p1MazeSnapshot = null; p2MazeSnapshot = null;
+      p1InfiltrationResult = null; p2InfiltrationResult = null;
+      setupDuelStage1();
+    }
+
+    function setupDuelStage1() {
+      duelStage = 1;
+      gold = 200;
+      resetGridState();
+      buildTilePalette();
+      renderGridDOM();
+
+      document.getElementById('paletteCard').classList.remove('hidden');
+      document.getElementById('duelNavControlsPanel').classList.add('hidden');
+      document.getElementById('duelRadarCounter').classList.add('hidden');
+
+      document.getElementById('duelStageIndicator').innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span> <span>STAGE 1: P1 BUILD MAZE A</span>';
+      const pBanner = document.getElementById('activePlayerBanner');
+      pBanner.className = 'px-2.5 py-1 rounded font-bold border flex items-center gap-1.5 bg-cyan-950/70 border-cyan-400 text-cyan-300';
+      pBanner.textContent = '👤 P1 (CYAN ARCHITECT)';
+
+      document.getElementById('phaseBadge').textContent = 'P1 BUILD PHASE';
+      document.getElementById('duelStageActionBtn').innerHTML = '<span>🔒</span> LOCK P1 MAZE & PASS';
+
+      document.getElementById('energyLabel').textContent = 'INFILTRATOR HP:';
+      document.getElementById('energyText').textContent = '50/50';
+      document.getElementById('energyBar').style.width = '100%';
+      document.getElementById('heuristicFormulaBadge').textContent = 'Duel: Build A';
+      document.getElementById('heuristicDesc').textContent = 'Player 1: Construct Maze A with 200 Gold. Disguise Trojan Batteries (-15 HP) or set Portals & Gates. Path to Vault [13,13] must remain feasible!';
+
+      updateGoldDisplay();
+      updatePredictedPath();
+      logEvent('STAGE 1: Player 1 (Cyan) began building Maze A with 200G.', 'cyan');
+    }
+
+    function setupDuelStage2() {
+      duelStage = 2;
+      gold = 200;
+      resetGridState();
+      buildTilePalette();
+      renderGridDOM();
+
+      document.getElementById('paletteCard').classList.remove('hidden');
+      document.getElementById('duelNavControlsPanel').classList.add('hidden');
+      document.getElementById('duelRadarCounter').classList.add('hidden');
+
+      document.getElementById('duelStageIndicator').innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> <span>STAGE 2: P2 BUILD MAZE B</span>';
+      const pBanner = document.getElementById('activePlayerBanner');
+      pBanner.className = 'px-2.5 py-1 rounded font-bold border flex items-center gap-1.5 bg-amber-950/70 border-amber-400 text-amber-300';
+      pBanner.textContent = '👤 P2 (AMBER ARCHITECT)';
+
+      document.getElementById('phaseBadge').textContent = 'P2 BUILD PHASE';
+      document.getElementById('duelStageActionBtn').innerHTML = '<span>🔒</span> LOCK P2 MAZE & PASS';
+
+      document.getElementById('heuristicFormulaBadge').textContent = 'Duel: Build B';
+      document.getElementById('heuristicDesc').textContent = 'Player 2: Construct Maze B with 200 Gold. Place cunning traps and genuine energy cells to mislead Player 1!';
+
+      updateGoldDisplay();
+      updatePredictedPath();
+      logEvent('STAGE 2: Player 2 (Amber) began building Maze B with 200G.', 'amber');
+    }
+
+    function setupDuelStage3() {
+      duelStage = 3;
+      grid = cloneGrid(p2MazeSnapshot);
+      portalPair = { 
+        a: p2Portals.a ? { ...p2Portals.a } : null, 
+        b: p2Portals.b ? { ...p2Portals.b } : null 
+      };
+
+      duelOperative = {
+        player: 1,
+        r: START_POS.r, c: START_POS.c,
+        hp: 50, maxHp: 60, baseHp: 50,
+        steps: 0, trapsTriggered: 0, radarUses: 2,
+        escaped: false,
+        visited: new Set([`${START_POS.r},${START_POS.c}`])
+      };
+
+      document.getElementById('paletteCard').classList.add('hidden');
+      document.getElementById('duelNavControlsPanel').classList.remove('hidden');
+      document.getElementById('duelRadarCounter').classList.remove('hidden');
+      document.getElementById('radarCountText').textContent = '2/2';
+
+      document.getElementById('duelStageIndicator').innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span> <span>STAGE 3: P1 INFILTRATE MAZE B</span>';
+      const pBanner = document.getElementById('activePlayerBanner');
+      pBanner.className = 'px-2.5 py-1 rounded font-bold border flex items-center gap-1.5 bg-cyan-950/70 border-cyan-400 text-cyan-300';
+      pBanner.textContent = '🕹️ INFILTRATOR: PLAYER 1 (50 HP)';
+
+      document.getElementById('phaseBadge').textContent = 'P1 INFILTRATION (FOG OF WAR)';
+      document.getElementById('duelStageActionBtn').innerHTML = '<span>⚡</span> RADAR SCAN (2 LEFT)';
+
+      document.getElementById('goldDisplay').textContent = `${p1GoldSaved}G (Saved)`;
+      document.getElementById('energyLabel').textContent = 'P1 HP:';
+      document.getElementById('energyText').textContent = '50/50';
+      document.getElementById('energyBar').style.width = '100%';
+      document.getElementById('heuristicFormulaBadge').textContent = 'Fog of War';
+      document.getElementById('heuristicDesc').textContent = 'Player 1: Infiltrate Player 2\'s shrouded maze! Trojan Batteries look identical to Energy Cells until touched. Reach the Vault [13,13] alive!';
+
+      renderGridDOM();
+      updateDuelFogOfWar();
+      logEvent('STAGE 3: Player 1 entered Player 2\'s maze under Fog of War.', 'cyan');
+    }
+
+    function setupDuelStage4() {
+      duelStage = 4;
+      grid = cloneGrid(p1MazeSnapshot);
+      portalPair = { 
+        a: p1Portals.a ? { ...p1Portals.a } : null, 
+        b: p1Portals.b ? { ...p1Portals.b } : null 
+      };
+
+      duelOperative = {
+        player: 2,
+        r: START_POS.r, c: START_POS.c,
+        hp: 50, maxHp: 60, baseHp: 50,
+        steps: 0, trapsTriggered: 0, radarUses: 2,
+        escaped: false,
+        visited: new Set([`${START_POS.r},${START_POS.c}`])
+      };
+
+      document.getElementById('paletteCard').classList.add('hidden');
+      document.getElementById('duelNavControlsPanel').classList.remove('hidden');
+      document.getElementById('duelRadarCounter').classList.remove('hidden');
+      document.getElementById('radarCountText').textContent = '2/2';
+
+      document.getElementById('duelStageIndicator').innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> <span>STAGE 4: P2 INFILTRATE MAZE A</span>';
+      const pBanner = document.getElementById('activePlayerBanner');
+      pBanner.className = 'px-2.5 py-1 rounded font-bold border flex items-center gap-1.5 bg-amber-950/70 border-amber-400 text-amber-300';
+      pBanner.textContent = '🕹️ INFILTRATOR: PLAYER 2 (50 HP)';
+
+      document.getElementById('phaseBadge').textContent = 'P2 INFILTRATION (FOG OF WAR)';
+      document.getElementById('duelStageActionBtn').innerHTML = '<span>⚡</span> RADAR SCAN (2 LEFT)';
+
+      document.getElementById('goldDisplay').textContent = `${p2GoldSaved}G (Saved)`;
+      document.getElementById('energyLabel').textContent = 'P2 HP:';
+      document.getElementById('energyText').textContent = '50/50';
+      document.getElementById('energyBar').style.width = '100%';
+      document.getElementById('heuristicFormulaBadge').textContent = 'Fog of War';
+      document.getElementById('heuristicDesc').textContent = 'Player 2: Infiltrate Player 1\'s shrouded maze! Reach the Vault [13,13] alive!';
+
+      renderGridDOM();
+      updateDuelFogOfWar();
+      logEvent('STAGE 4: Player 2 entered Player 1\'s maze under Fog of War.', 'amber');
+    }
+
+    function handleDuelActionBtnClick() {
+      if (duelStage === 1) {
+        if (!checkPathFeasibility()) {
+          showToast('Invalid Maze! Ensure a feasible path exists to Vault [13, 13].', true);
+          return;
+        }
+        p1MazeSnapshot = cloneGrid(grid);
+        p1Portals = { 
+          a: portalPair.a ? { ...portalPair.a } : null, 
+          b: portalPair.b ? { ...portalPair.b } : null 
+        };
+        p1GoldSaved = gold;
+
+        blankOutGridVisuals();
+        showPassScreenModal(
+          'Pass Device to Player 2 to Build Maze B',
+          'Player 1 has locked in Maze A. Pass this device to <span class="text-amber-400 font-bold">Player 2</span>. Player 2 will have 200G to construct their secret defense maze.',
+          'Ready (Player 2)',
+          () => {
+            hidePassScreenModal();
+            setupDuelStage2();
+          }
+        );
+      } else if (duelStage === 2) {
+        if (!checkPathFeasibility()) {
+          showToast('Invalid Maze! Ensure a feasible path exists to Vault [13, 13].', true);
+          return;
+        }
+        p2MazeSnapshot = cloneGrid(grid);
+        p2Portals = { 
+          a: portalPair.a ? { ...portalPair.a } : null, 
+          b: portalPair.b ? { ...portalPair.b } : null 
+        };
+        p2GoldSaved = gold;
+
+        blankOutGridVisuals();
+        showPassScreenModal(
+          'Build Phase Complete! Pass to Player 1',
+          'Both mazes have been constructed! Hand device back to <span class="text-cyan-400 font-bold">Player 1</span> to infiltrate Player 2\'s shrouded maze in real-time under Fog of War.',
+          'Start Infiltration (Player 1)',
+          () => {
+            hidePassScreenModal();
+            setupDuelStage3();
+          }
+        );
+      } else if (duelStage === 3 || duelStage === 4) {
+        triggerDuelRadarScan();
+      }
+    }
+
+    function blankOutGridVisuals() {
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const el = document.getElementById(`cell-${r}-${c}`);
+          if (el) {
+            el.className = 'grid-cell rounded-[2px] border border-slate-900 bg-black';
+            el.querySelector('.cell-icon').textContent = '';
+            el.querySelector('.cell-tag').classList.add('hidden');
+          }
+        }
+      }
+    }
+
+    function showPassScreenModal(title, bodyHtml, btnText, onConfirm) {
+      const modal = document.getElementById('passScreenModal');
+      document.getElementById('passModalTitle').innerHTML = title;
+      document.getElementById('passModalBody').innerHTML = bodyHtml;
+      const btn = document.getElementById('passModalReadyBtn');
+      btn.textContent = btnText;
+      btn.onclick = onConfirm;
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modal.classList.add('opacity-100');
+      }, 10);
+    }
+
+    function hidePassScreenModal() {
+      const modal = document.getElementById('passScreenModal');
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 250);
+    }
+
+    function updateDuelFogOfWar() {
+      const currR = duelOperative.r;
+      const currC = duelOperative.c;
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const cellEl = document.getElementById(`cell-${r}-${c}`);
+          if (!cellEl) continue;
+
+          const dist = manhattan(currR, currC, r, c);
+          const isGoal = (r === GOAL_POS.r && c === GOAL_POS.c);
+          const isCurrent = (r === currR && c === currC);
+          const key = `${r},${c}`;
+          const isVisited = duelOperative.visited.has(key);
+
+          cellEl.classList.remove('cell-shrouded', 'cell-dimmed');
+
+          const iconSpan = cellEl.querySelector('.cell-icon');
+          const tagSpan = cellEl.querySelector('.cell-tag');
+          const agentMarker = cellEl.querySelector('.agent-marker');
+
+          agentMarker.classList.add('hidden');
+          tagSpan.classList.add('hidden');
+
+          if (dist > 2 && !isGoal && !isVisited) {
+            cellEl.className = 'grid-cell rounded-[2px] border border-slate-900 bg-[#03060c] cell-shrouded flex items-center justify-center';
+            iconSpan.textContent = ' ';
+            continue;
+          }
+
+          const isDimmed = dist > 2 && isVisited && !isGoal;
+          renderDuelCellItem(r, c, cellEl, iconSpan, tagSpan, isDimmed);
+
+          if (isDimmed) {
+            cellEl.classList.add('cell-dimmed');
+          }
+
+          if (isCurrent) {
+            agentMarker.classList.remove('hidden');
+            agentMarker.textContent = duelOperative.player === 1 ? 'P1' : 'P2';
+            agentMarker.className = `agent-marker absolute inset-0.5 rounded-[2px] flex items-center justify-center text-[9px] font-black text-black z-25 agent-active ${
+              duelOperative.player === 1 
+                ? 'bg-gradient-to-tr from-cyan-400 to-sky-200 shadow-[0_0_12px_#00f3ff]' 
+                : 'bg-gradient-to-tr from-amber-400 to-orange-400 shadow-[0_0_12px_#f59e0b]'
+            }`;
+          }
+        }
+      }
+
+      document.getElementById('stepCounter').textContent = `Step: ${duelOperative.steps}`;
+      document.getElementById('inspectCoords').textContent = `[${currR}, ${currC}]`;
+      const curCell = grid[currR][currC];
+      document.getElementById('inspectTileType').textContent = (currR === START_POS.r && currC === START_POS.c) ? 'Start Ingress' : (currR === GOAL_POS.r && currC === GOAL_POS.c ? 'Vault Goal' : curCell.type);
+      document.getElementById('inspectRemainingHP').textContent = `${duelOperative.hp} / ${duelOperative.baseHp}`;
+
+      const pct = Math.max(0, (duelOperative.hp / duelOperative.baseHp) * 100);
+      document.getElementById('energyBar').style.width = `${pct}%`;
+      document.getElementById('energyText').textContent = `${duelOperative.hp}/${duelOperative.baseHp}`;
+    }
+
+    function renderDuelCellItem(r, c, cellEl, iconSpan, tagSpan, isDimmed) {
+      const cell = grid[r][c];
+      if (r === START_POS.r && c === START_POS.c) {
+        cellEl.className = 'grid-cell rounded-[2px] border border-green-500 bg-green-950/70 text-green-300 flex items-center justify-center';
+        iconSpan.textContent = 'S';
+        return;
+      }
+      if (r === GOAL_POS.r && c === GOAL_POS.c) {
+        cellEl.className = 'grid-cell rounded-[2px] border border-amber-400 bg-amber-950/80 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.5)] flex items-center justify-center';
+        iconSpan.textContent = '★';
+        return;
+      }
+
+      if (cell.type === 'WALL') {
+        cellEl.className = 'grid-cell rounded-[2px] border border-cyan-500 bg-cyan-950 text-cyan-300 flex items-center justify-center';
+        iconSpan.textContent = '█';
+      } else if (cell.type === 'SWAMP') {
+        cellEl.className = 'grid-cell rounded-[2px] border border-emerald-500/70 bg-emerald-950/90 text-emerald-400 flex items-center justify-center';
+        iconSpan.textContent = '≈';
+      } else if (cell.type === 'GATE') {
+        cellEl.className = 'grid-cell rounded-[2px] border border-blue-400 bg-blue-950/80 text-cyan-300 flex items-center justify-center';
+        const arrows = { N: '↑', E: '→', S: '↓', W: '←' };
+        iconSpan.textContent = arrows[cell.dir || 'E'];
+      } else if (cell.type === 'PORTAL') {
+        const isA = cell.portalTag === 'QA';
+        cellEl.className = `grid-cell rounded-[2px] border ${isA ? 'border-cyan-400 bg-cyan-950/90 text-cyan-300' : 'border-purple-400 bg-purple-950/90 text-purple-300'} flex items-center justify-center`;
+        iconSpan.textContent = '◎';
+        tagSpan.classList.remove('hidden');
+        tagSpan.textContent = cell.portalTag || 'QP';
+        tagSpan.className = `cell-tag absolute top-0.5 right-0.5 text-[7px] font-black font-mono leading-none ${isA ? 'text-cyan-300' : 'text-purple-300'}`;
+      } else if (cell.type === 'MIRAGE') {
+        // Camouflaged in Fog of War: looks like floor
+        if (cell.revealed) {
+          cellEl.className = 'grid-cell rounded-[2px] border border-pink-500 bg-pink-950 text-pink-300 flex items-center justify-center';
+          iconSpan.textContent = '⚡';
+        } else {
+          cellEl.className = 'grid-cell rounded-[2px] border border-slate-800/70 bg-slate-900/60 text-slate-600 flex items-center justify-center';
+          iconSpan.textContent = '';
+        }
+      } else if (cell.type === 'TROJAN') {
+        // Camouflaged: looks like Real Energy Cell ⚡
+        if (cell.revealed) {
+          cellEl.className = 'grid-cell rounded-[2px] border border-red-500 bg-red-950 text-red-300 flex items-center justify-center';
+          iconSpan.textContent = '█';
+        } else {
+          cellEl.className = 'grid-cell rounded-[2px] border border-emerald-400 bg-emerald-950/80 text-emerald-300 flex items-center justify-center';
+          iconSpan.textContent = '⚡';
+        }
+      } else if (cell.type === 'BATTERY') {
+        if (cell.revealed) {
+          cellEl.className = 'grid-cell rounded-[2px] border border-slate-800/70 bg-slate-900/60 text-slate-600 flex items-center justify-center';
+          iconSpan.textContent = '';
+        } else {
+          cellEl.className = 'grid-cell rounded-[2px] border border-emerald-400 bg-emerald-950/80 text-emerald-300 flex items-center justify-center';
+          iconSpan.textContent = '⚡';
+        }
+      } else {
+        cellEl.className = 'grid-cell rounded-[2px] border border-slate-800/70 bg-slate-900/60 text-slate-600 flex items-center justify-center';
+        iconSpan.textContent = '';
+      }
+    }
+
+    function moveDuelOperative(dr, dc) {
+      if (gameMode !== 'DUEL' || (duelStage !== 3 && duelStage !== 4)) return;
+      if (duelOperative.hp <= 0 || duelOperative.escaped) return;
+
+      const targetR = duelOperative.r + dr;
+      const targetC = duelOperative.c + dc;
+
+      if (targetR < 0 || targetR >= GRID_SIZE || targetC < 0 || targetC >= GRID_SIZE) return;
+
+      if (!canTraverseStep(duelOperative.r, duelOperative.c, targetR, targetC)) {
+        showToast('Blocked! Impassable Wall or One-Way Gate violation.', true);
+        return;
+      }
+
+      const targetCell = grid[targetR][targetC];
+      if (targetCell.type === 'WALL' || (targetCell.type === 'TROJAN' && targetCell.revealed)) {
+        showToast('Solid Wall barrier blocks movement!', true);
+        return;
+      }
+
+      duelOperative.r = targetR;
+      duelOperative.c = targetC;
+      duelOperative.steps++;
+      duelOperative.visited.add(`${targetR},${targetC}`);
+
+      let damageDrain = 1;
+
+      // Quantum Portal instantaneous jump
+      if (targetCell.type === 'PORTAL' && portalPair.a && portalPair.b) {
+        if (targetR === portalPair.a.r && targetC === portalPair.a.c) {
+          logEvent(`🌀 Portal QA stepped! Operative jumped to QB [${portalPair.b.r}, ${portalPair.b.c}].`, 'cyan');
+          duelOperative.r = portalPair.b.r;
+          duelOperative.c = portalPair.b.c;
+          duelOperative.visited.add(`${portalPair.b.r},${portalPair.b.c}`);
+        } else if (targetR === portalPair.b.r && targetC === portalPair.b.c) {
+          logEvent(`🌀 Portal QB stepped! Operative jumped to QA [${portalPair.a.r}, ${portalPair.a.c}].`, 'cyan');
+          duelOperative.r = portalPair.a.r;
+          duelOperative.c = portalPair.a.c;
+          duelOperative.visited.add(`${portalPair.a.r},${portalPair.a.c}`);
+        }
+      }
+
+      const activeCell = grid[duelOperative.r][duelOperative.c];
+
+      if (activeCell.type === 'MIRAGE') {
+        damageDrain = 12;
+        if (!activeCell.revealed) {
+          activeCell.revealed = true;
+          duelOperative.trapsTriggered++;
+          logEvent(`💥 MIRAGE DETONATED! -12 HP drain!`, 'pink');
+        }
+      } else if (activeCell.type === 'TROJAN') {
+        damageDrain = 15;
+        if (!activeCell.revealed) {
+          activeCell.revealed = true;
+          duelOperative.trapsTriggered++;
+          logEvent(`💣 TROJAN BAIT DETONATED! -15 HP damage and turned into Solid Wall!`, 'pink');
+        }
+      } else if (activeCell.type === 'BATTERY') {
+        if (!activeCell.revealed) {
+          activeCell.revealed = true;
+          damageDrain = -10;
+          logEvent(`⚡ ENERGY CELL COLLECTED! +10 HP recharged!`, 'cyan');
+        }
+      } else if (activeCell.type === 'SWAMP') {
+        damageDrain = 5;
+        logEvent(`Traversing swamp (-5 HP).`, 'slate');
+      }
+
+      duelOperative.hp = Math.min(duelOperative.maxHp, duelOperative.hp - damageDrain);
+      updateDuelFogOfWar();
+
+      if (duelOperative.hp <= 0) {
+        duelOperative.hp = 0;
+        duelOperative.escaped = false;
+        logEvent(`💀 Infiltrator Player ${duelOperative.player} ran out of kinetic energy!`, 'red');
+        handleDuelInfiltrationFinished();
+        return;
+      }
+
+      if (duelOperative.r === GOAL_POS.r && duelOperative.c === GOAL_POS.c) {
+        duelOperative.escaped = true;
+        logEvent(`🏆 Infiltrator Player ${duelOperative.player} successfully breached the Vault [13,13]!`, 'cyan');
+        handleDuelInfiltrationFinished();
+      }
+    }
+
+    function triggerDuelRadarScan() {
+      if (duelOperative.radarUses <= 0) {
+        showToast('No Radar Scans remaining!', true);
+        return;
+      }
+
+      duelOperative.radarUses--;
+      document.getElementById('radarCountText').textContent = `${duelOperative.radarUses}/2`;
+      document.getElementById('duelStageActionBtn').innerHTML = `<span>⚡</span> RADAR SCAN (${duelOperative.radarUses} LEFT)`;
+      logEvent(`📡 Radar Sonar Wave activated! Disclosing hazards in 2-tile radius.`, 'cyan');
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (manhattan(duelOperative.r, duelOperative.c, r, c) <= 2) {
+            const cell = grid[r][c];
+            if (cell.type === 'MIRAGE' || cell.type === 'TROJAN') {
+              cell.revealed = true;
+            }
+          }
+        }
+      }
+      updateDuelFogOfWar();
+    }
+
+    function handleDuelInfiltrationFinished() {
+      if (duelStage === 3) {
+        p1InfiltrationResult = { ...duelOperative };
+        blankOutGridVisuals();
+        showPassScreenModal(
+          'Player 1 Infiltration Complete!',
+          `Player 1 status: <span class="font-bold ${p1InfiltrationResult.escaped ? 'text-green-400' : 'text-red-400'}">${p1InfiltrationResult.escaped ? 'ESCAPED TO VAULT' : 'NEUTRALIZED'}</span> with ${p1InfiltrationResult.hp} HP remaining in ${p1InfiltrationResult.steps} steps.<br><br>Now pass device to <span class="text-amber-400 font-bold">Player 2</span> to infiltrate Player 1's Maze A!`,
+          'Ready (Player 2)',
+          () => {
+            hidePassScreenModal();
+            setupDuelStage4();
+          }
+        );
+      } else if (duelStage === 4) {
+        p2InfiltrationResult = { ...duelOperative };
+        showFinalShowdownModal();
+      }
+    }
+
+    function showFinalShowdownModal() {
+      const modal = document.getElementById('showdownModal');
+
+      document.getElementById('p1StatusBadge').textContent = p1InfiltrationResult.escaped ? 'ESCAPED' : 'TRAPPED';
+      document.getElementById('p1StatusBadge').className = p1InfiltrationResult.escaped ? 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-950 text-green-300 border border-green-500' : 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-300 border border-red-500';
+      document.getElementById('p1HPVal').textContent = `${p1InfiltrationResult.hp} / 50 HP`;
+      document.getElementById('p1StepsVal').textContent = `${p1InfiltrationResult.steps}`;
+      document.getElementById('p1GoldVal').textContent = `${p1GoldSaved}G`;
+      document.getElementById('p1TrapsVal').textContent = `${p1InfiltrationResult.trapsTriggered}`;
+
+      document.getElementById('p2StatusBadge').textContent = p2InfiltrationResult.escaped ? 'ESCAPED' : 'TRAPPED';
+      document.getElementById('p2StatusBadge').className = p2InfiltrationResult.escaped ? 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-950 text-green-300 border border-green-500' : 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-300 border border-red-500';
+      document.getElementById('p2HPVal').textContent = `${p2InfiltrationResult.hp} / 50 HP`;
+      document.getElementById('p2StepsVal').textContent = `${p2InfiltrationResult.steps}`;
+      document.getElementById('p2GoldVal').textContent = `${p2GoldSaved}G`;
+      document.getElementById('p2TrapsVal').textContent = `${p2InfiltrationResult.trapsTriggered}`;
+
+      let winner = 0;
+      if (p1InfiltrationResult.escaped && !p2InfiltrationResult.escaped) {
+        winner = 1;
+      } else if (!p1InfiltrationResult.escaped && p2InfiltrationResult.escaped) {
+        winner = 2;
+      } else {
+        if (p1InfiltrationResult.hp > p2InfiltrationResult.hp) {
+          winner = 1;
+        } else if (p2InfiltrationResult.hp > p1InfiltrationResult.hp) {
+          winner = 2;
+        } else {
+          if (p1InfiltrationResult.steps < p2InfiltrationResult.steps) {
+            winner = 1;
+          } else if (p2InfiltrationResult.steps < p1InfiltrationResult.steps) {
+            winner = 2;
+          } else {
+            if (p1GoldSaved > p2GoldSaved) winner = 1;
+            else if (p2GoldSaved > p1GoldSaved) winner = 2;
+            else winner = 0;
+          }
+        }
+      }
+
+      const winnerBadge = document.getElementById('showdownWinnerBadge');
+      if (winner === 1) {
+        winnerBadge.textContent = '👑 DUEL CHAMPION: PLAYER 1 (CYAN)';
+        winnerBadge.className = 'inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-cyan-950 border border-cyan-400 text-cyan-300 mb-2 shadow-[0_0_12px_#00f3ff]';
+      } else if (winner === 2) {
+        winnerBadge.textContent = '👑 DUEL CHAMPION: PLAYER 2 (AMBER)';
+        winnerBadge.className = 'inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-amber-950 border border-amber-400 text-amber-300 mb-2 shadow-[0_0_12px_#f59e0b]';
+      } else {
+        winnerBadge.textContent = '🤝 STALEMATE: TIE MATCH';
+        winnerBadge.className = 'inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-purple-950 border border-purple-400 text-purple-300 mb-2';
+      }
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modal.classList.add('opacity-100');
+      }, 10);
+    }
+
+    function hideShowdownModal() {
+      const modal = document.getElementById('showdownModal');
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0');
+      setTimeout(() => { modal.classList.add('hidden'); }, 250);
+    }
+
+    function buildTilePalette() {
+      const paletteContainer = document.getElementById('tilePalette');
+      paletteContainer.innerHTML = '';
+
+      const items = ['WALL', 'SWAMP', 'MIRAGE', 'BEACON', 'PORTAL', 'GATE', 'TROJAN', 'BATTERY', 'ERASER'];
+      items.forEach(key => {
+        const tile = TILE_TYPES[key];
+        const btn = document.createElement('button');
+        btn.id = `palette-${key}`;
+        btn.className = `flex items-center justify-between p-2 rounded-lg border text-left transition-all ${
+          activeTool === key 
+            ? 'border-cyan-400 bg-cyan-950/70 shadow-[0_0_10px_rgba(0,243,255,0.3)]' 
+            : 'border-slate-800/80 bg-black/40 hover:border-slate-600'
+        }`;
+        btn.innerHTML = `
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${tile.colorClass}">
+              ${tile.icon || '⌑'}
+            </div>
+            <div>
+              <div class="font-bold text-[11px] text-slate-200">${tile.name}</div>
+              <div class="text-[9px] text-slate-400 font-mono line-clamp-1">${tile.desc}</div>
+            </div>
+          </div>
+          <div class="text-right font-mono ml-1">
+            <span class="text-xs font-bold ${tile.gold > 0 ? 'text-amber-400' : 'text-slate-400'}">
+              ${tile.gold > 0 ? `${tile.gold}G` : (key === 'ERASER' ? 'REFUND' : '0G')}
+            </span>
+          </div>
+        `;
+        btn.addEventListener('click', () => selectPaletteTool(key));
+        paletteContainer.appendChild(btn);
+      });
+    }
+
+    function selectPaletteTool(key) {
+      activeTool = key;
+      const items = ['WALL', 'SWAMP', 'MIRAGE', 'BEACON', 'PORTAL', 'GATE', 'TROJAN', 'BATTERY', 'ERASER'];
+      items.forEach(k => {
+        const el = document.getElementById(`palette-${k}`);
+        if (!el) return;
+        el.className = k === key
+          ? 'flex items-center justify-between p-2 rounded-lg border text-left transition-all border-cyan-400 bg-cyan-950/70 shadow-[0_0_10px_rgba(0,243,255,0.3)]'
+          : 'flex items-center justify-between p-2 rounded-lg border text-left transition-all border-slate-800/80 bg-black/40 hover:border-slate-600';
+      });
+    }
+
+    function updatePortalIndicator() {
+      let count = 0;
+      if (portalPair.a) count++;
+      if (portalPair.b) count++;
+      document.getElementById('portalPairIndicator').textContent = `PORTALS: ${count}/2`;
+    }
+
+    function renderGridDOM() {
+      const gridEl = document.getElementById('gridElement');
+      gridEl.innerHTML = '';
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const cellEl = document.createElement('div');
+          cellEl.id = `cell-${r}-${c}`;
+          cellEl.className = 'grid-cell rounded-[2px] border border-slate-800/70 bg-slate-900/80 flex flex-col items-center justify-center cursor-pointer transition relative overflow-hidden';
+
+          const iconSpan = document.createElement('span');
+          iconSpan.className = 'cell-icon text-[11px] sm:text-xs font-bold z-10 select-none';
+          cellEl.appendChild(iconSpan);
+
+          const tagSpan = document.createElement('span');
+          tagSpan.className = 'cell-tag hidden absolute top-0.5 right-0.5 text-[7px] font-black z-15 font-mono leading-none';
+          cellEl.appendChild(tagSpan);
+
+          const predDot = document.createElement('div');
+          predDot.className = 'pred-dot hidden absolute w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f3ff] z-20 predicted-dot';
+          cellEl.appendChild(predDot);
+
+          const agentMarker = document.createElement('div');
+          agentMarker.className = 'agent-marker hidden absolute inset-0.5 rounded-[2px] bg-gradient-to-tr from-pink-600 to-rose-400 flex items-center justify-center text-[9px] font-black text-black z-25 agent-active shadow-[0_0_12px_#ff0055]';
+          agentMarker.textContent = 'AI';
+          cellEl.appendChild(agentMarker);
+
+          cellEl.addEventListener('mousedown', (e) => {
+            if (isExecuting) return;
+            if (gameMode === 'DUEL' && (duelStage === 3 || duelStage === 4)) {
+              const dr = r - duelOperative.r;
+              const dc = c - duelOperative.c;
+              if (Math.abs(dr) + Math.abs(dc) === 1) moveDuelOperative(dr, dc);
+              return;
+            }
+            isMouseDown = true;
+            if (e.button === 2) handleCellInteract(r, c, 'ERASER');
+            else handleCellInteract(r, c, activeTool);
+          });
+
+          cellEl.addEventListener('mouseenter', () => {
+            if (isMouseDown && !isExecuting && activeTool !== 'GATE' && activeTool !== 'PORTAL') {
+              if (gameMode === 'AI' || duelStage === 1 || duelStage === 2) {
+                handleCellInteract(r, c, activeTool);
+              }
+            }
+          });
+
+          cellEl.addEventListener('contextmenu', (e) => e.preventDefault());
+          gridEl.appendChild(cellEl);
+        }
+      }
+
+      if (gameMode === 'DUEL' && (duelStage === 3 || duelStage === 4)) {
+        updateDuelFogOfWar();
+      } else {
+        updateAllCellVisuals();
+      }
+    }
+
+    function handleCellInteract(r, c, toolKey) {
+      if (isExecuting) return;
+      if (gameMode === 'DUEL' && (duelStage === 3 || duelStage === 4)) return;
+      if ((r === START_POS.r && c === START_POS.c) || (r === GOAL_POS.r && c === GOAL_POS.c)) {
+        showToast('Start and Goal are permanent!', true);
+        return;
+      }
+
+      const cell = grid[r][c];
+
+      if (toolKey === 'ERASER') {
+        if (cell.type !== 'EMPTY') {
+          if (cell.type === 'PORTAL') {
+            if (portalPair.a && portalPair.a.r === r && portalPair.a.c === c) portalPair.a = null;
+            else if (portalPair.b && portalPair.b.r === r && portalPair.b.c === c) portalPair.b = null;
+            updatePortalIndicator();
+          }
+          gold += cell.spentGold;
+          logEvent(`Demolished ${TILE_TYPES[cell.type].name} at [${r}, ${c}]. +${cell.spentGold}G refunded.`, 'slate');
+          cell.type = 'EMPTY';
+          cell.spentGold = 0;
+          cell.revealed = false;
+          cell.portalTag = null;
+          updateGoldDisplay();
+          updateCellVisual(r, c);
+          updatePredictedPath();
+        }
+        return;
+      }
+
+      if (cell.type === 'GATE' && toolKey === 'GATE') {
+        const directions = ['N', 'E', 'S', 'W'];
+        const currentIdx = directions.indexOf(cell.dir || 'E');
+        cell.dir = directions[(currentIdx + 1) % 4];
+        updateCellVisual(r, c);
+        logEvent(`Rotated Gate at [${r}, ${c}] to face ${cell.dir}.`, 'cyan');
+        updatePredictedPath();
+        return;
+      }
+
+      if (cell.type === toolKey && toolKey !== 'PORTAL') return;
+
+      if (toolKey === 'PORTAL') {
+        if (portalPair.a && portalPair.b) {
+          showToast('Portal pair full (QA & QB placed). Erase one to reposition.');
+          return;
+        }
+        const portalCost = 20;
+        if (gold < portalCost) {
+          showToast(`Insufficient Gold! Portals cost 20G each.`, true);
+          return;
+        }
+        let assignedTag = !portalPair.a ? 'QA' : 'QB';
+        if (!portalPair.a) portalPair.a = { r, c };
+        else portalPair.b = { r, c };
+
+        gold -= portalCost;
+        cell.type = 'PORTAL';
+        cell.portalTag = assignedTag;
+        cell.spentGold = portalCost;
+        cell.revealed = false;
+        updatePortalIndicator();
+        updateGoldDisplay();
+        updateCellVisual(r, c);
+        logEvent(`Quantum Portal [${assignedTag}] anchored at [${r}, ${c}].`, 'cyan');
+        updatePredictedPath();
+        return;
+      }
+
+      const targetTile = TILE_TYPES[toolKey];
+      if (!targetTile) return;
+
+      const refund = cell.spentGold;
+      const netCost = targetTile.gold - refund;
+      if (gold < netCost) {
+        showToast(`Insufficient Gold! Need ${netCost}G.`, true);
+        return;
+      }
+
+      if (toolKey === 'WALL' || toolKey === 'GATE') {
+        const oldType = cell.type;
+        const oldDir = cell.dir;
+        cell.type = toolKey;
+        if (toolKey === 'GATE') cell.dir = 'E';
+        const hasPath = checkPathFeasibility();
+        cell.type = oldType;
+        cell.dir = oldDir;
+        if (!hasPath) {
+          showToast('Illegal move! Impassable layout would seal all paths to the Goal.', true);
+          return;
+        }
+      }
+
+      if (cell.type === 'PORTAL') {
+        if (portalPair.a && portalPair.a.r === r && portalPair.a.c === c) portalPair.a = null;
+        if (portalPair.b && portalPair.b.r === r && portalPair.b.c === c) portalPair.b = null;
+        updatePortalIndicator();
+      }
+
+      gold -= netCost;
+      cell.type = toolKey;
+      cell.spentGold = targetTile.gold;
+      cell.revealed = false;
+      cell.portalTag = null;
+      if (toolKey === 'GATE') cell.dir = 'E';
+
+      updateGoldDisplay();
+      updateCellVisual(r, c);
+      logEvent(`Placed ${targetTile.name} at [${r}, ${c}] (${netCost >= 0 ? '-' + netCost : '+' + (-netCost)}G).`, 'cyan');
+      updatePredictedPath();
+    }
+
+    function updateGoldDisplay() {
+      const el = document.getElementById('goldDisplay');
+      el.textContent = `${gold}G`;
+      el.className = gold < 15 ? 'text-red-400 font-bold text-sm tracking-wider animate-pulse' : 'text-amber-300 font-bold text-sm tracking-wider';
+    }
+
+    function showToast(msg, isError = false) {
+      const container = document.getElementById('toastContainer');
+      const text = document.getElementById('toastMessage');
+      text.textContent = msg;
+      text.className = isError
+        ? 'bg-red-950/95 border border-red-500 text-red-200 text-xs px-3 py-2 rounded-lg text-center font-mono shadow-[0_0_20px_rgba(239,68,68,0.5)]'
+        : 'bg-cyan-950/95 border border-cyan-400 text-cyan-200 text-xs px-3 py-2 rounded-lg text-center font-mono shadow-[0_0_20px_rgba(0,243,255,0.5)]';
+
+      container.classList.remove('opacity-0', 'translate-y-[-10px]');
+      container.classList.add('opacity-100', 'translate-y-0');
+      clearTimeout(window.toastTimer);
+      window.toastTimer = setTimeout(() => {
+        container.classList.remove('opacity-100', 'translate-y-0');
+        container.classList.add('opacity-0', 'translate-y-[-10px]');
+      }, 2500);
+    }
+
+    function updateAllCellVisuals() {
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          updateCellVisual(r, c);
+        }
+      }
+    }
+
+    function updateCellVisual(r, c) {
+      const cellEl = document.getElementById(`cell-${r}-${c}`);
+      if (!cellEl) return;
+      const cell = grid[r][c];
+      const iconSpan = cellEl.querySelector('.cell-icon');
+      const tagSpan = cellEl.querySelector('.cell-tag');
+
+      cellEl.className = 'grid-cell rounded-[2px] border relative flex flex-col items-center justify-center cursor-pointer transition overflow-hidden';
+      tagSpan.classList.add('hidden');
+
+      if (r === START_POS.r && c === START_POS.c) {
+        cellEl.classList.add('bg-green-950/70', 'border-green-400', 'text-green-300');
+        iconSpan.textContent = 'S';
+      } else if (r === GOAL_POS.r && c === GOAL_POS.c) {
+        cellEl.classList.add('bg-amber-950/80', 'border-amber-400', 'text-amber-300');
+        iconSpan.textContent = '★';
+      } else {
+        if (cell.type === 'WALL') {
+          cellEl.classList.add('bg-cyan-950', 'border-cyan-500', 'text-cyan-300');
+          iconSpan.textContent = '█';
+        } else if (cell.type === 'SWAMP') {
+          cellEl.classList.add('bg-emerald-950/90', 'border-emerald-500/70', 'text-emerald-400');
+          iconSpan.textContent = '≈';
+        } else if (cell.type === 'MIRAGE') {
+          cellEl.classList.add('bg-purple-950/40', 'border-purple-500/40', 'text-pink-400');
+          iconSpan.textContent = '✦';
+        } else if (cell.type === 'BEACON') {
+          cellEl.classList.add('bg-amber-950/70', 'border-amber-400', 'text-amber-300');
+          iconSpan.textContent = '▲';
+        } else if (cell.type === 'PORTAL') {
+          const isA = cell.portalTag === 'QA';
+          cellEl.classList.add(isA ? 'bg-cyan-950/90' : 'bg-purple-950/90', isA ? 'border-cyan-400' : 'border-purple-400', isA ? 'text-cyan-300' : 'text-purple-300');
+          iconSpan.textContent = '◎';
+          tagSpan.classList.remove('hidden');
+          tagSpan.textContent = cell.portalTag || 'QP';
+        } else if (cell.type === 'GATE') {
+          cellEl.classList.add('bg-blue-950/80', 'border-blue-400', 'text-cyan-300');
+          const arrows = { N: '↑', E: '→', S: '↓', W: '←' };
+          iconSpan.textContent = arrows[cell.dir || 'E'];
+        } else if (cell.type === 'TROJAN') {
+          cellEl.classList.add('bg-emerald-950/80', 'border-emerald-400', 'text-emerald-300');
+          iconSpan.textContent = '🔋';
+        } else if (cell.type === 'BATTERY') {
+          cellEl.classList.add('bg-green-950/80', 'border-green-400', 'text-green-300');
+          iconSpan.textContent = '⚡';
+        } else {
+          cellEl.classList.add('bg-slate-900/60', 'border-slate-800/50', 'text-slate-600');
+          iconSpan.textContent = '';
+        }
+      }
+    }
+
+    function manhattan(r1, c1, r2, c2) {
+      return Math.abs(r1 - r2) + Math.abs(c1 - c2);
+    }
+
+    function canTraverseStep(fromR, fromC, toR, toC) {
+      const fromCell = grid[fromR][fromC];
+      const toCell = grid[toR][toC];
+
+      if (toCell.type === 'WALL' || (toCell.type === 'TROJAN' && toCell.revealed)) return false;
+
+      const dr = toR - fromR;
+      const dc = toC - fromC;
+
+      if (fromCell.type === 'GATE') {
+        const allowed = { N: [-1, 0], S: [1, 0], E: [0, 1], W: [0, -1] }[fromCell.dir || 'E'];
+        if (dr !== allowed[0] || dc !== allowed[1]) return false;
+      }
+
+      if (toCell.type === 'GATE') {
+        const allowed = { N: [-1, 0], S: [1, 0], E: [0, 1], W: [0, -1] }[toCell.dir || 'E'];
+        if (dr !== allowed[0] || dc !== allowed[1]) return false;
+      }
+
+      return true;
+    }
+
+    function checkPathFeasibility() {
+      const queue = [{ r: START_POS.r, c: START_POS.c }];
+      const visited = new Set([`${START_POS.r},${START_POS.c}`]);
+
+      while (queue.length > 0) {
+        const curr = queue.shift();
+        if (curr.r === GOAL_POS.r && curr.c === GOAL_POS.c) return true;
+
+        if (grid[curr.r][curr.c].type === 'PORTAL' && portalPair.a && portalPair.b) {
+          const isA = curr.r === portalPair.a.r && curr.c === portalPair.a.c;
+          const other = isA ? portalPair.b : portalPair.a;
+          const otherKey = `${other.r},${other.c}`;
+          if (!visited.has(otherKey)) {
+            visited.add(otherKey);
+            queue.push({ r: other.r, c: other.c });
+          }
+        }
+
+        const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        for (const [dr, dc] of neighbors) {
+          const nr = curr.r + dr;
+          const nc = curr.c + dc;
+          if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
+          const key = `${nr},${nc}`;
+          if (!visited.has(key) && canTraverseStep(curr.r, curr.c, nr, nc)) {
+            visited.add(key);
+            queue.push({ r: nr, c: nc });
+          }
+        }
+      }
+      return false;
+    }
+
+    function computeHeuristic(r, c) {
+      let direct = manhattan(r, c, GOAL_POS.r, GOAL_POS.c);
+      if (portalPair.a && portalPair.b) {
+        const viaA = manhattan(r, c, portalPair.a.r, portalPair.a.c) + 1 + manhattan(portalPair.b.r, portalPair.b.c, GOAL_POS.r, GOAL_POS.c);
+        const viaB = manhattan(r, c, portalPair.b.r, portalPair.b.c) + 1 + manhattan(portalPair.a.r, portalPair.a.c, GOAL_POS.r, GOAL_POS.c);
+        direct = Math.min(direct, viaA, viaB);
+      }
+      for (let ro = 0; ro < GRID_SIZE; ro++) {
+        for (let co = 0; co < GRID_SIZE; co++) {
+          if (grid[ro][co].type === 'BEACON' && manhattan(r, c, ro, co) <= 2) {
+            direct = Math.max(0, direct - 4);
+          }
+        }
+      }
+      return direct;
+    }
+
+    function computeAStarPath(start, goal) {
+      const openSet = [{ r: start.r, c: start.c, g: 0, f: computeHeuristic(start.r, start.c), path: [start] }];
+      const gScores = {};
+      gScores[`${start.r},${start.c}`] = 0;
+
+      while (openSet.length > 0) {
+        openSet.sort((a, b) => a.f - b.f);
+        const curr = openSet.shift();
+
+        if (curr.r === goal.r && curr.c === goal.c) return curr.path;
+
+        const currentCell = grid[curr.r][curr.c];
+        if (currentCell.type === 'PORTAL' && portalPair.a && portalPair.b) {
+          const isA = curr.r === portalPair.a.r && curr.c === portalPair.a.c;
+          const target = isA ? portalPair.b : portalPair.a;
+          const pKey = `${target.r},${target.c}`;
+          const nextG = curr.g + 1;
+          if (gScores[pKey] === undefined || nextG < gScores[pKey]) {
+            gScores[pKey] = nextG;
+            openSet.push({
+              r: target.r, c: target.c,
+              g: nextG,
+              f: nextG + computeHeuristic(target.r, target.c),
+              path: [...curr.path, { r: target.r, c: target.c }]
+            });
+          }
+        }
+
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        for (const [dr, dc] of dirs) {
+          const nr = curr.r + dr;
+          const nc = curr.c + dc;
+          if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
+          if (!canTraverseStep(curr.r, curr.c, nr, nc)) continue;
+
+          const nCell = grid[nr][nc];
+          let stepCost = 1;
+          if (nCell.type === 'SWAMP') stepCost = 5;
+          else if (nCell.type === 'TROJAN') stepCost = 0.5;
+
+          const tentativeG = curr.g + stepCost;
+          const key = `${nr},${nc}`;
+
+          if (gScores[key] === undefined || tentativeG < gScores[key]) {
+            gScores[key] = tentativeG;
+            openSet.push({
+              r: nr, c: nc,
+              g: tentativeG,
+              f: tentativeG + computeHeuristic(nr, nc),
+              path: [...curr.path, { r: nr, c: nc }]
+            });
+          }
+        }
+      }
+      return null;
+    }
+
+    function updatePredictedPath() {
+      if (gameMode !== 'AI' && duelStage !== 1 && duelStage !== 2) return;
+
+      document.querySelectorAll('.pred-dot').forEach(el => el.classList.add('hidden'));
+      const path = computeAStarPath(START_POS, GOAL_POS);
+
+      let trapsArmed = 0;
+      let specialTiles = 0;
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const t = grid[r][c].type;
+          if (t === 'MIRAGE' || t === 'TROJAN') trapsArmed++;
+          if (t === 'PORTAL' || t === 'GATE' || t === 'BEACON' || t === 'BATTERY') specialTiles++;
+        }
+      }
+      document.getElementById('statTrapsArmed').textContent = trapsArmed;
+      document.getElementById('statSpecialTiles').textContent = specialTiles;
+
+      if (!path) {
+        document.getElementById('statPathLen').textContent = 'BLOCKED';
+        document.getElementById('statEstDrain').textContent = '--';
+        return;
+      }
+
+      document.getElementById('statPathLen').textContent = path.length;
+      let estDrain = 0;
+      path.forEach((pos, idx) => {
+        if (idx > 0 && idx < path.length - 1) {
+          const cellEl = document.getElementById(`cell-${pos.r}-${pos.c}`);
+          if (cellEl) {
+            const dot = cellEl.querySelector('.pred-dot');
+            if (dot) dot.classList.remove('hidden');
+          }
+        }
+        const cell = grid[pos.r][pos.c];
+        if (cell.type === 'MIRAGE') estDrain += 12;
+        else if (cell.type === 'TROJAN') estDrain += 15;
+        else if (cell.type === 'SWAMP') estDrain += 5;
+        else if (cell.type === 'BATTERY') estDrain -= 10;
+        else estDrain += 1;
+      });
+      document.getElementById('statEstDrain').textContent = `${Math.max(0, estDrain)} HP`;
+    }
+
+    function startAiExecution() {
+      if (isExecuting) return;
+      isExecuting = true;
+      agentPosition = { ...START_POS };
+      aiEnergy = AI_LEVELS[currentLevel].maxEnergy;
+      stepCount = 0;
+
+      document.getElementById('phaseBadge').textContent = 'EXECUTION INGRESS';
+      document.getElementById('telemetryStatus').textContent = '● ACTIVE';
+      document.getElementById('telemetryStatus').className = 'text-[10px] text-pink-400 animate-ping';
+      logEvent('Deploying AI Explorer into matrix.', 'cyan');
+
+      stepAiLoop();
+    }
+
+    function stepAiLoop() {
+      if (!isExecuting) return;
+      const path = computeAStarPath(agentPosition, GOAL_POS);
+      if (!path || path.length <= 1) {
+        stopExecution();
+        return;
+      }
+
+      const nextNode = path[1];
+      agentPosition = { r: nextNode.r, c: nextNode.c };
+      stepCount++;
+      document.getElementById('stepCounter').textContent = `Step: ${stepCount}`;
+      document.getElementById('inspectCoords').textContent = `[${agentPosition.r}, ${agentPosition.c}]`;
+
+      const targetCell = grid[agentPosition.r][agentPosition.c];
+      let drain = 1;
+      if (targetCell.type === 'MIRAGE') {
+        drain = 12;
+        targetCell.revealed = true;
+        logEvent(`Triggered Mirage Trap at [${agentPosition.r}, ${agentPosition.c}]! -12 HP.`, 'pink');
+      } else if (targetCell.type === 'TROJAN') {
+        drain = 15;
+        targetCell.revealed = true;
+        logEvent(`Triggered Trojan Battery at [${agentPosition.r}, ${agentPosition.c}]! -15 HP & Solidified.`, 'pink');
+      } else if (targetCell.type === 'SWAMP') {
+        drain = 5;
+      }
+
+      aiEnergy = Math.max(0, aiEnergy - drain);
+      const pct = (aiEnergy / AI_LEVELS[currentLevel].maxEnergy) * 100;
+      document.getElementById('energyBar').style.width = `${pct}%`;
+      document.getElementById('energyText').textContent = `${aiEnergy}/${AI_LEVELS[currentLevel].maxEnergy}`;
+      document.getElementById('inspectRemainingHP').textContent = aiEnergy;
+
+      updateAllCellVisuals();
+      const currEl = document.getElementById(`cell-${agentPosition.r}-${agentPosition.c}`);
+      if (currEl) {
+        const marker = currEl.querySelector('.agent-marker');
+        if (marker) marker.classList.remove('hidden');
+      }
+
+      if (aiEnergy <= 0) {
+        stopExecution();
+        showAiOutcomeModal(true);
+        return;
+      }
+
+      if (agentPosition.r === GOAL_POS.r && agentPosition.c === GOAL_POS.c) {
+        stopExecution();
+        showAiOutcomeModal(false);
+        return;
+      }
+
+      executionTimer = setTimeout(stepAiLoop, 250);
+    }
+
+    function stopExecution() {
+      isExecuting = false;
+      clearTimeout(executionTimer);
+      document.getElementById('phaseBadge').textContent = 'ARCHITECT PHASE';
+      document.getElementById('telemetryStatus').textContent = '● STANDBY';
+      document.getElementById('telemetryStatus').className = 'text-[10px] text-green-400';
+    }
+
+    function showAiOutcomeModal(success) {
+      const modal = document.getElementById('outcomeModal');
+      document.getElementById('modalTitle').textContent = success ? 'MISSION SUCCESS' : 'VAULT BREACHED';
+      document.getElementById('modalTitle').className = success ? 'font-display font-bold text-2xl uppercase tracking-wider mb-1 text-cyan-400' : 'font-display font-bold text-2xl uppercase tracking-wider mb-1 text-red-400';
+      document.getElementById('modalSubtitle').textContent = success ? 'AI Explorer depleted of all kinetic reserve.' : 'AI successfully breached Treasure Vault [13,13].';
+      modal.classList.remove('hidden');
+      setTimeout(() => { modal.classList.remove('opacity-0'); modal.classList.add('opacity-100'); }, 10);
+    }
+
+    function hideAiOutcomeModal() {
+      const modal = document.getElementById('outcomeModal');
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0');
+      setTimeout(() => { modal.classList.add('hidden'); }, 250);
+    }
+
+    function applyLevelSettings(lvl) {
+      currentLevel = lvl;
+      const conf = AI_LEVELS[lvl];
+      gold = conf.budget;
+      aiEnergy = conf.maxEnergy;
+      document.getElementById('goldDisplay').textContent = `${gold}G`;
+      document.getElementById('energyText').textContent = `${aiEnergy}/${aiEnergy}`;
+      document.getElementById('heuristicFormulaBadge').textContent = conf.formulaBadge;
+      document.getElementById('heuristicDesc').textContent = conf.desc;
+      updatePredictedPath();
+    }
+
+    function logEvent(msg, color = 'slate') {
+      const log = document.getElementById('logStream');
+      const entry = document.createElement('div');
+      const time = new Date().toTimeString().split(' ')[0];
+      entry.className = `text-[11px] leading-tight ${color === 'cyan' ? 'text-cyan-300' : (color === 'pink' ? 'text-pink-400' : (color === 'amber' ? 'text-amber-300' : (color === 'red' ? 'text-red-400' : 'text-slate-400')))}`;
+      entry.innerHTML = `<span class="text-slate-600">[${time}]</span> ${msg}`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function setupEventListeners() {
+      document.getElementById('modeAiBtn').addEventListener('click', () => setGameMode('AI'));
+      document.getElementById('modeDuelBtn').addEventListener('click', () => setGameMode('DUEL'));
+
+      document.getElementById('levelSelect').addEventListener('change', (e) => {
+        applyLevelSettings(parseInt(e.target.value));
+      });
+
+      document.getElementById('startWaveBtn').addEventListener('click', startAiExecution);
+      document.getElementById('resetWaveBtn').addEventListener('click', () => {
+        stopExecution();
+        document.querySelectorAll('.agent-marker').forEach(m => m.classList.add('hidden'));
+        applyLevelSettings(currentLevel);
+      });
+      document.getElementById('clearAllBtn').addEventListener('click', () => {
+        resetGridState();
+        updateAllCellVisuals();
+        applyLevelSettings(currentLevel);
+      });
+
+      // Duel Events
+      document.getElementById('duelStageActionBtn').addEventListener('click', handleDuelActionBtnClick);
+      document.getElementById('duelResetCurrentBtn').addEventListener('click', () => {
+        resetGridState();
+        gold = 200;
+        updateGoldDisplay();
+        updateAllCellVisuals();
+      });
+      document.getElementById('duelAbortBtn').addEventListener('click', () => setGameMode('AI'));
+      document.getElementById('duelRematchBtn').addEventListener('click', () => {
+        hideShowdownModal();
+        startDuelMatch();
+      });
+      document.getElementById('duelExitToAiBtn').addEventListener('click', () => {
+        hideShowdownModal();
+        setGameMode('AI');
+      });
+
+      // Movement D-Pad
+      document.getElementById('dpadUp').addEventListener('click', () => moveDuelOperative(-1, 0));
+      document.getElementById('dpadDown').addEventListener('click', () => moveDuelOperative(1, 0));
+      document.getElementById('dpadLeft').addEventListener('click', () => moveDuelOperative(0, -1));
+      document.getElementById('dpadRight').addEventListener('click', () => moveDuelOperative(0, 1));
+      document.getElementById('duelRadarBtn').addEventListener('click', triggerDuelRadarScan);
+
+      // Keyboard Controls
+      window.addEventListener('keydown', (e) => {
+        if (gameMode === 'DUEL' && (duelStage === 3 || duelStage === 4)) {
+          if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') { e.preventDefault(); moveDuelOperative(-1, 0); }
+          else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') { e.preventDefault(); moveDuelOperative(1, 0); }
+          else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { e.preventDefault(); moveDuelOperative(0, -1); }
+          else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); moveDuelOperative(0, 1); }
+          else if (e.key === ' ') { e.preventDefault(); triggerDuelRadarScan(); }
+        }
+      });
+
+      window.addEventListener('mouseup', () => { isMouseDown = false; });
+      document.getElementById('modalReplayBtn').addEventListener('click', hideAiOutcomeModal);
+      document.getElementById('modalNextBtn').addEventListener('click', () => {
+        hideAiOutcomeModal();
+        currentLevel = (currentLevel % 5) + 1;
+        document.getElementById('levelSelect').value = currentLevel;
+        applyLevelSettings(currentLevel);
+      });
+      document.getElementById('clearLogBtn').addEventListener('click', () => {
+        document.getElementById('logStream').innerHTML = '';
+      });
+
+      // Share & Import
+      document.getElementById('shareMazeBtn').addEventListener('click', () => {
+        const payload = {
+          lvl: currentLevel,
+          tiles: []
+        };
+        for (let r = 0; r < GRID_SIZE; r++) {
+          for (let c = 0; c < GRID_SIZE; c++) {
+            if (grid[r][c].type !== 'EMPTY') {
+              payload.tiles.push({ r, c, t: grid[r][c].type, d: grid[r][c].dir, p: grid[r][c].portalTag });
+            }
+          }
+        }
+        const b64 = btoa(JSON.stringify(payload));
+        navigator.clipboard.writeText(b64);
+        showToast('Maze string copied to clipboard!');
+      });
+
+      document.getElementById('importMazeBtn').addEventListener('click', () => {
+        const modal = document.getElementById('importModal');
+        modal.classList.remove('hidden');
+        setTimeout(() => { modal.classList.remove('opacity-0'); modal.classList.add('opacity-100'); }, 10);
+      });
+      document.getElementById('closeImportModalBtn').addEventListener('click', closeImportModal);
+      document.getElementById('cancelImportBtn').addEventListener('click', closeImportModal);
+      document.getElementById('executeImportBtn').addEventListener('click', () => {
+        try {
+          const raw = document.getElementById('importCodeInput').value.trim();
+          const data = JSON.parse(atob(raw));
+          resetGridState();
+          data.tiles.forEach(item => {
+            grid[item.r][item.c].type = item.t;
+            grid[item.r][item.c].dir = item.d || 'E';
+            grid[item.r][item.c].portalTag = item.p || null;
+            if (item.t === 'PORTAL') {
+              if (item.p === 'QA') portalPair.a = { r: item.r, c: item.c };
+              else if (item.p === 'QB') portalPair.b = { r: item.r, c: item.c };
+            }
+          });
+          updatePortalIndicator();
+          updateAllCellVisuals();
+          updatePredictedPath();
+          closeImportModal();
+          showToast('Maze architecture restored!');
+        } catch (err) {
+          showToast('Invalid Base64 code!', true);
+        }
+      });
+    }
+
+    function closeImportModal() {
+      const modal = document.getElementById('importModal');
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0');
+      setTimeout(() => { modal.classList.add('hidden'); }, 250);
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
