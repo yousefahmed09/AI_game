@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chaos Architect: Reverse Tower Defense</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --neon-cyan: #00f3ff;
+      --neon-pink: #ff0055;
+      --neon-amber: #ffaa00;
+      --neon-green: #00ff88;
+      --neon-purple: #9d4edd;
+      --bg-dark: #080b11;
+      --panel-bg: rgba(13, 19, 33, 0.85);
+    }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(0, 243, 255, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(255, 0, 85, 0.05) 0%, transparent 40%),
+        linear-gradient(rgba(0, 243, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 243, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
+    }
+    .font-display {
+      font-family: 'Chakra Petch', sans-serif;
+    }
+    /* Grid styling */
+    .game-grid {
+      display: grid;
+      grid-template-columns: repeat(15, minmax(0, 1fr));
+      grid-template-rows: repeat(15, minmax(0, 1fr));
+      gap: 2px;
+      user-select: none;
+    }
+    .grid-cell {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .scanline {
+      background: linear-gradient(
+        to bottom,
+        rgba(255,255,255,0),
+        rgba(255,255,255,0) 50%,
+        rgba(0, 0, 0, 0.3) 50%,
+        rgba(0, 0, 0, 0.3)
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+    /* Path animations */
+    @keyframes pulsePath {
+      0%, 100% { opacity: 0.9; transform: scale(1); filter: drop-shadow(0 0 4px var(--neon-cyan)); }
+      50% { opacity: 0.4; transform: scale(0.85); filter: drop-shadow(0 0 1px var(--neon-cyan)); }
+    }
+    .predicted-dot {
+      animation: pulsePath 1.6s infinite ease-in-out;
+    }
+    @keyframes agentFloat {
+      0%, 100% { transform: translateY(0px) scale(1); }
+      50% { transform: translateY(-2px) scale(1.05); }
+    }
+    .agent-active {
+      animation: agentFloat 0.8s infinite ease-in-out;
+      box-shadow: 0 0 16px var(--neon-pink);
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(13, 19, 33, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 243, 255, 0.3);
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 243, 255, 0.6);
+    }
+    /* Glitch subtle animation */
+    .glow-cyan {
+      box-shadow: 0 0 10px rgba(0, 243, 255, 0.3), inset 0 0 10px rgba(0, 243, 255, 0.1);
+    }
+    .glow-pink {
+      box-shadow: 0 0 12px rgba(255, 0, 85, 0.4);
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-200 flex flex-col justify-between selection:bg-cyan-500 selection:text-black">
+
+  <!-- HUD Header -->
+  <header class="border-b border-cyan-900/50 bg-[#06090e]/90 backdrop-blur sticky top-0 z-30 px-4 py-2.5 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded bg-cyan-950 border border-cyan-400 flex items-center justify-center text-cyan-400 font-bold shadow-[0_0_10px_rgba(0,243,255,0.4)]">
+        Ω
+      </div>
+      <div>
+        <h1 class="text-lg md:text-xl font-bold tracking-wider font-display uppercase bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-sky-200 to-pink-500">
+          Chaos Architect <span class="text-xs px-2 py-0.5 ml-2 border border-pink-500/50 rounded text-pink-400 font-mono tracking-normal lowercase">v1.0.4-rt-rev</span>
+        </h1>
+        <p class="text-[11px] text-cyan-500/70 font-mono tracking-tight hidden sm:block">Heuristic Manipulation Matrix // Drain AI Energy Before Extraction</p>
+      </div>
+    </div>
+
+    <!-- Active Level Pill & AI Spec -->
+    <div class="flex items-center gap-3 bg-slate-900/90 border border-cyan-800/40 rounded-lg px-3 py-1 text-xs">
+      <span class="text-slate-400">Target AI:</span>
+      <select id="levelSelect" class="bg-black/60 border border-cyan-500/40 text-cyan-300 rounded px-2 py-1 font-mono focus:outline-none focus:border-cyan-400 cursor-pointer">
+        <option value="1">L1: Greedy Scout [Greedy f=h]</option>
+        <option value="2">L2: The Calculator [Dijkstra f=g]</option>
+        <option value="3" selected>L3: Master Tactician [A* f=g+h]</option>
+      </select>
+    </div>
+
+    <!-- Status Badges -->
+    <div class="flex items-center gap-4 text-xs font-mono">
+      <div class="flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded border border-amber-500/30">
+        <span class="text-amber-400 font-bold">GOLD:</span>
+        <span id="goldDisplay" class="text-amber-300 font-bold text-sm tracking-wider">180G</span>
+      </div>
+      <div class="flex items-center gap-2 bg-black/40 px-3 py-1 rounded border border-pink-500/30">
+        <span class="text-pink-400 font-bold">AI ENERGY:</span>
+        <div class="w-24 bg-slate-800 h-2.5 rounded-full overflow-hidden border border-pink-900">
+          <div id="energyBar" class="bg-gradient-to-r from-pink-500 to-red-400 h-full w-full transition-all duration-300"></div>
+        </div>
+        <span id="energyText" class="text-pink-300 font-bold min-w-[45px] text-right">50/50</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Game Workspace -->
+  <main class="flex-1 max-w-[1720px] w-full mx-auto p-2 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
+    
+    <!-- LEFT COLUMN: Arsenal & Instructions (3 cols on lg) -->
+    <section class="lg:col-span-3 flex flex-col gap-3 order-2 lg:order-1">
+      
+      <!-- Palette Panel -->
+      <div class="bg-[#0b101b]/90 border border-cyan-900/60 rounded-xl p-3.5 shadow-lg backdrop-blur flex flex-col gap-3">
+        <div class="flex items-center justify-between border-b border-cyan-900/40 pb-2">
+          <span class="font-display font-bold text-sm tracking-wide text-cyan-400 flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+            TILE ARSENAL
+          </span>
+          <span class="text-[10px] text-slate-400 font-mono">CLICK / DRAG TO PLACE</span>
+        </div>
+
+        <div id="tilePalette" class="grid grid-cols-1 gap-2">
+          <!-- Populated by JS for reactivity -->
+        </div>
+
+        <div class="text-[11px] text-slate-400 font-mono bg-black/40 p-2.5 rounded border border-slate-800 space-y-1">
+          <div class="flex items-center justify-between text-cyan-300 font-semibold">
+            <span>Click + Drag:</span>
+            <span class="text-slate-400 font-normal">Fast wall/swamp painting</span>
+          </div>
+          <div class="flex items-center justify-between text-cyan-300 font-semibold">
+            <span>Right-Click:</span>
+            <span class="text-slate-400 font-normal">Quick erase / 100% refund</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Heuristic Intel Card -->
+      <div class="bg-[#0b101b]/90 border border-slate-800 rounded-xl p-3.5 shadow-lg flex flex-col gap-2 font-mono text-xs">
+        <div class="flex items-center justify-between text-slate-300 font-bold border-b border-slate-800 pb-1.5">
+          <span class="text-pink-400 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-pink-500 animate-ping"></span>
+            ACTIVE HEURISTIC INTEL
+          </span>
+          <span id="heuristicFormulaBadge" class="text-[11px] px-1.5 py-0.5 rounded bg-pink-950/70 border border-pink-500/40 text-pink-300 font-bold">f = g + h</span>
+        </div>
+        <p id="heuristicDesc" class="text-slate-300 text-[11px] leading-relaxed pt-1">
+          Master Tactician balances real movement cost g(n) with estimated distance h(n). Trap lures must balance perceived detour costs!
+        </p>
+
+        <!-- Quick Heuristic Formula Breakdown -->
+        <div class="bg-black/50 p-2 rounded border border-slate-800 text-[10px] space-y-1">
+          <div class="flex justify-between"><span class="text-cyan-400">g(n):</span> <span class="text-slate-400">Accumulated perceived path cost</span></div>
+          <div class="flex justify-between"><span class="text-purple-400">h(n):</span> <span class="text-slate-400">Manhattan distance (affected by Beacons)</span></div>
+          <div class="flex justify-between"><span class="text-amber-400">f(n):</span> <span class="text-slate-300 font-bold">Total heuristic decision score</span></div>
+        </div>
+      </div>
+
+      <!-- Quick Legend -->
+      <div class="bg-[#0b101b]/80 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 space-y-1.5 font-mono">
+        <div class="text-slate-300 font-bold text-xs mb-1">GRID LEGEND</div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-green-500/40 border border-green-400 flex items-center justify-center text-[8px] text-green-300 font-bold">S</div>
+          <span>Start Point [1, 1] - Ingress</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-amber-500/40 border border-amber-400 flex items-center justify-center text-[8px] text-amber-300 font-bold">G</div>
+          <span>Treasure Vault [13, 13] - Egress</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_6px_#00f3ff]"></div>
+          <span>Cyan Line: Predicted AI Trajectory</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- CENTER COLUMN: 15x15 Interactive Grid & Controls (6 cols on lg) -->
+    <section class="lg:col-span-6 flex flex-col items-center gap-3 order-1 lg:order-2">
+      
+      <!-- Grid Container & Controls Bar -->
+      <div class="w-full bg-[#080d17]/95 border border-cyan-800/40 rounded-xl p-3.5 shadow-2xl flex flex-col items-center relative overflow-hidden">
+        
+        <!-- Top Toolbar -->
+        <div class="w-full flex flex-wrap items-center justify-between gap-2 mb-3 pb-2 border-b border-cyan-950">
+          <div class="flex items-center gap-2">
+            <span id="phaseBadge" class="px-2.5 py-0.5 rounded text-xs font-bold tracking-wider font-display uppercase bg-cyan-950 border border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(0,243,255,0.3)]">
+              ARCHITECT PHASE
+            </span>
+            <span id="stepCounter" class="text-xs font-mono text-slate-400">Step: 0</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <!-- AI Brain View Toggle -->
+            <button id="toggleBrainBtn" class="px-2.5 py-1 text-xs rounded font-mono font-semibold border border-purple-500/40 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60 transition flex items-center gap-1.5" title="Overlay live f, g, h calculation numbers inside cells">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+              Brain View: <span id="brainStateText">OFF</span>
+            </button>
+            
+            <!-- Speed Toggle -->
+            <button id="speedBtn" class="px-2 py-1 text-xs rounded font-mono font-semibold border border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 transition">
+              1x Speed
+            </button>
+          </div>
+        </div>
+
+        <!-- Warning Toast Container -->
+        <div id="toastContainer" class="absolute top-12 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all duration-300 opacity-0 translate-y-[-10px] w-11/12 max-w-md">
+          <div id="toastMessage" class="bg-red-950/95 border border-red-500 text-red-200 text-xs px-3 py-2 rounded-lg text-center font-mono shadow-[0_0_15px_rgba(239,68,68,0.5)]">
+            Path Blocked! Goal must remain reachable.
+          </div>
+        </div>
+
+        <!-- The 15x15 Matrix Canvas Wrapper -->
+        <div class="relative w-full max-w-[560px] aspect-square p-2 bg-[#05080f] rounded-lg border border-cyan-950 shadow-inner">
+          <div id="gridElement" class="game-grid w-full h-full"></div>
+          
+          <!-- Scanline overlay effect -->
+          <div class="absolute inset-0 scanline pointer-events-none opacity-40 rounded-lg"></div>
+        </div>
+
+        <!-- Bottom Action Controls -->
+        <div class="w-full flex flex-wrap items-center justify-between gap-2 mt-3 pt-2 border-t border-cyan-950">
+          <div class="flex items-center gap-2">
+            <button id="startWaveBtn" class="px-5 py-2 rounded-lg font-display font-bold text-sm tracking-wider uppercase bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black shadow-[0_0_15px_rgba(0,243,255,0.4)] transition transform active:scale-95 flex items-center gap-2">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M4.5 3.5a1 1 0 011.5-.866l10 5.5a1 1 0 010 1.732l-10 5.5A1 1 0 014.5 14.5v-11z"></path></svg>
+              Deploy AI Ingress
+            </button>
+            <button id="resetWaveBtn" class="px-3.5 py-2 rounded-lg font-mono text-xs font-semibold bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 transition">
+              Reset Wave
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button id="clearAllBtn" class="px-3 py-2 rounded-lg font-mono text-xs text-red-400 border border-red-950 hover:border-red-600/50 hover:bg-red-950/20 transition">
+              Clear Grid
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: Telemetry, Brain Diagnostics & Live Step Log (3 cols on lg) -->
+    <section class="lg:col-span-3 flex flex-col gap-3 order-3">
+      
+      <!-- Live Metrics Dashboard -->
+      <div class="bg-[#0b101b]/90 border border-cyan-900/60 rounded-xl p-3.5 shadow-lg backdrop-blur flex flex-col gap-3 font-mono">
+        <div class="flex items-center justify-between border-b border-cyan-900/40 pb-2">
+          <span class="font-display font-bold text-sm tracking-wide text-cyan-400 flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            LIVE TELEMETRY
+          </span>
+          <span id="telemetryStatus" class="text-[10px] text-green-400 animate-pulse">● STANDBY</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[10px] text-slate-400">PREDICTED STEPS</div>
+            <div id="statPathLen" class="text-cyan-300 font-bold text-base mt-0.5">25</div>
+          </div>
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[10px] text-slate-400">ESTIMATED DRAIN</div>
+            <div id="statEstDrain" class="text-amber-400 font-bold text-base mt-0.5">25 HP</div>
+          </div>
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[10px] text-slate-400">TRAPS ARMED</div>
+            <div id="statTrapsArmed" class="text-pink-400 font-bold text-base mt-0.5">0</div>
+          </div>
+          <div class="bg-black/50 p-2 rounded border border-slate-800">
+            <div class="text-[10px] text-slate-400">BEACONS ACTIVE</div>
+            <div id="statBeacons" class="text-purple-400 font-bold text-base mt-0.5">0</div>
+          </div>
+        </div>
+
+        <!-- Real-Time AI Node Inspection -->
+        <div class="bg-black/70 p-2.5 rounded border border-cyan-900/40 text-[11px] space-y-1">
+          <div class="text-slate-400 font-semibold border-b border-slate-800 pb-1 flex justify-between">
+            <span>CURRENT AGENT NODE:</span>
+            <span id="inspectCoords" class="text-cyan-300 font-bold">[1, 1]</span>
+          </div>
+          <div class="flex justify-between pt-1">
+            <span class="text-slate-400">Tile Type:</span>
+            <span id="inspectTileType" class="text-slate-200">Start Ingress</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Perceived Cost (g):</span>
+            <span id="inspectPerceivedCost" class="text-cyan-300">0</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Remaining Real HP:</span>
+            <span id="inspectRemainingHP" class="text-pink-400 font-bold">50</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Execution Log -->
+      <div class="bg-[#0b101b]/90 border border-slate-800 rounded-xl p-3.5 shadow-lg flex flex-col gap-2 font-mono flex-1">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+          <span class="font-display font-bold text-xs tracking-wider text-slate-300 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            NEURAL STEP LOG
+          </span>
+          <button id="clearLogBtn" class="text-[10px] text-slate-500 hover:text-slate-300">CLEAR</button>
+        </div>
+
+        <div id="logStream" class="h-56 lg:h-64 overflow-y-auto pr-1 text-[11px] space-y-1.5 flex flex-col font-mono">
+          <div class="text-slate-500 text-[10px] italic">System initialized. Awaiting wave start...</div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Outcome / Mission Complete Modal -->
+  <div id="outcomeModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+    <div class="bg-[#0d1424] border-2 rounded-2xl max-w-md w-full p-6 text-center shadow-2xl relative overflow-hidden font-mono" id="modalCard">
+      <div id="modalIconContainer" class="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 text-3xl">
+        🎉
+      </div>
+      <h2 id="modalTitle" class="font-display font-bold text-2xl uppercase tracking-wider mb-2 text-cyan-400">
+        MISSION SUCCESS
+      </h2>
+      <p id="modalSubtitle" class="text-slate-300 text-xs leading-relaxed mb-5">
+        AI Explorer depleted of all kinetic reserve before breaching the Treasure Vault.
+      </p>
+
+      <div class="bg-black/60 rounded-lg p-3 text-xs border border-slate-800 space-y-2 mb-6 text-left">
+        <div class="flex justify-between"><span class="text-slate-400">Wave Level:</span> <span id="modalLevel" class="text-cyan-300 font-bold">L3 Tactician</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Steps Traveled:</span> <span id="modalSteps" class="text-slate-200">18</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Traps Triggered:</span> <span id="modalTraps" class="text-pink-400 font-bold">3</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Remaining AI Energy:</span> <span id="modalEnergy" class="text-pink-400 font-bold">0 / 50</span></div>
+      </div>
+
+      <div class="flex gap-3 justify-center">
+        <button id="modalNextBtn" class="px-5 py-2 rounded-lg font-display font-bold text-sm tracking-wider uppercase bg-cyan-400 hover:bg-cyan-300 text-black shadow-lg transition">
+          Next Wave
+        </button>
+        <button id="modalReplayBtn" class="px-4 py-2 rounded-lg font-mono text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+          Replay Wave
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer Info -->
+  <footer class="border-t border-cyan-950/60 bg-[#06090e] px-4 py-1.5 text-center text-[10px] text-slate-500 font-mono flex flex-wrap justify-between items-center">
+    <span>Chaos Architect: Reverse Tower Defense &bull; Grid: 15x15 &bull; Pure Vanilla JS + Tailwind</span>
+    <span class="text-cyan-500/70">Heuristic Engine: Manhattan distance with dynamic perceived matrix recalculation</span>
+  </footer>
+
+  <!-- Application Logic -->
+  <script>
+    /* ========================================================
+       CHAOS ARCHITECT: CORE LOGIC & STATE MACHINE
+       ======================================================== */
+
+    const GRID_SIZE = 15;
+    const START_POS = { r: 1, c: 1 };
+    const GOAL_POS = { r: 13, c: 13 };
+
+    // Tile Configurations: [Name | Cost | Perceived g | Real Drain | Desc]
+    const TILE_TYPES = {
+      EMPTY: {
+        id: 'EMPTY',
+        name: 'Empty Floor',
+        gold: 0,
+        perceivedCost: 1,
+        realDrain: 1,
+        colorClass: 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-800/50',
+        icon: '',
+        desc: 'Default floor tile (1 cost, 1 drain)'
+      },
+      WALL: {
+        id: 'WALL',
+        name: 'Solid Wall',
+        gold: 10,
+        perceivedCost: Infinity,
+        realDrain: 0,
+        colorClass: 'bg-cyan-950 border-cyan-500 text-cyan-300 shadow-[inset_0_0_8px_rgba(0,243,255,0.4)]',
+        icon: '█',
+        desc: 'Impassable barrier blocks path'
+      },
+      SWAMP: {
+        id: 'SWAMP',
+        name: 'Swamp Field',
+        gold: 15,
+        perceivedCost: 5,
+        realDrain: 5,
+        colorClass: 'bg-emerald-950/90 border-emerald-500/60 text-emerald-400 shadow-[inset_0_0_8px_rgba(16,185,129,0.3)]',
+        icon: '≈',
+        desc: 'Visible sluggish bog (5 cost, 5 drain)'
+      },
+      MIRAGE: {
+        id: 'MIRAGE',
+        name: 'Mirage Trap',
+        gold: 25,
+        perceivedCost: 1, // When hidden looks like empty floor (cost 1)
+        revealedCost: 12,
+        realDrain: 12,
+        colorClass: 'bg-purple-950/80 border-purple-500/70 text-pink-400 shadow-[inset_0_0_8px_rgba(236,72,153,0.3)]',
+        icon: '✦',
+        desc: 'Camouflaged trap! Appears as 1 cost; drains 12 and updates perceived cost.'
+      },
+      BEACON: {
+        id: 'BEACON',
+        name: 'False Beacon',
+        gold: 35,
+        perceivedCost: 1,
+        realDrain: 2,
+        radius: 2,
+        heuristicDiscount: 4,
+        colorClass: 'bg-amber-950/80 border-amber-400 text-amber-300 shadow-[inset_0_0_12px_rgba(251,191,36,0.4)]',
+        icon: '▲',
+        desc: 'Decoy beacon: reduces h(n) by 4 within 2-tile radius'
+      },
+      ERASER: {
+        id: 'ERASER',
+        name: 'Eraser',
+        gold: 0,
+        perceivedCost: 1,
+        realDrain: 1,
+        colorClass: 'bg-red-950/40 border-red-500/50 text-red-300',
+        icon: '✕',
+        desc: 'Demolish tile with 100% Gold refund'
+      }
+    };
+
+    // AI Wave Definitions
+    const AI_LEVELS = {
+      1: {
+        name: 'Greedy Scout',
+        type: 'greedy',
+        budget: 120,
+        maxEnergy: 35,
+        formula: 'f = h(n)',
+        formulaBadge: 'f = h',
+        desc: 'Greedy Best-First search. Fixates only on remaining heuristic distance to Goal. Highly vulnerable to False Beacons!'
+      },
+      2: {
+        name: 'The Calculator',
+        type: 'dijkstra',
+        budget: 150,
+        maxEnergy: 45,
+        formula: 'f = g(n)',
+        formulaBadge: 'f = g',
+        desc: 'Dijkstra optimizer. Ignores distance h(n) and false beacons, computing purely lowest accumulated perceived cost.'
+      },
+      3: {
+        name: 'Master Tactician',
+        type: 'astar',
+        budget: 180,
+        maxEnergy: 50,
+        formula: 'f = g(n) + h(n)',
+        formulaBadge: 'f = g + h',
+        desc: 'Full A* heuristic pathfinder. Balances path cost with Manhattan distance. Requires multi-layered deception.'
+      }
+    };
+
+    // Global Game State
+    let currentLevel = 3;
+    let gold = AI_LEVELS[currentLevel].budget;
+    let aiEnergy = AI_LEVELS[currentLevel].maxEnergy;
+    let isExecuting = false;
+    let activeTool = 'WALL';
+    let isMouseDown = false;
+    let brainView = false;
+    let executionSpeed = 250; // ms per step
+    let stepCount = 0;
+    let executionTimer = null;
+    let agentPosition = { r: 1, c: 1 };
+    let agentTrapsTriggered = 0;
+
+    // Grid data structure: 15x15
+    // cell = { r, c, type: TILE_TYPES.EMPTY, revealed: false, originalCostRefund: 0 }
+    let grid = [];
+
+    // Memory map for AI during execution: remembers revealed traps
+    let aiKnownCosts = {}; // key: "r,c" -> cost
+
+    /* ========================================================
+       INITIALIZATION & GRID SETUP
+       ======================================================== */
+    function initGame() {
+      buildTilePalette();
+      resetGridState();
+      renderGridDOM();
+      setupEventListeners();
+      applyLevelSettings(currentLevel);
+    }
+
+    function resetGridState() {
+      grid = [];
+      aiKnownCosts = {};
+      for (let r = 0; r < GRID_SIZE; r++) {
+        grid[r] = [];
+        for (let c = 0; c < GRID_SIZE; c++) {
+          grid[r][c] = {
+            r,
+            c,
+            type: 'EMPTY',
+            revealed: false,
+            spentGold: 0
+          };
+        }
+      }
+      agentPosition = { ...START_POS };
+      stepCount = 0;
+      agentTrapsTriggered = 0;
+    }
+
+    function applyLevelSettings(lvl) {
+      currentLevel = parseInt(lvl);
+      const conf = AI_LEVELS[currentLevel];
+      gold = conf.budget;
+      aiEnergy = conf.maxEnergy;
+
+      // Update UI badges
+      document.getElementById('goldDisplay').textContent = `${gold}G`;
+      document.getElementById('energyText').textContent = `${aiEnergy}/${conf.maxEnergy}`;
+      document.getElementById('energyBar').style.width = '100%';
+      document.getElementById('heuristicFormulaBadge').textContent = conf.formulaBadge;
+      document.getElementById('heuristicDesc').textContent = conf.desc;
+      document.getElementById('phaseBadge').textContent = 'ARCHITECT PHASE';
+      document.getElementById('phaseBadge').className = 'px-2.5 py-0.5 rounded text-xs font-bold tracking-wider font-display uppercase bg-cyan-950 border border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(0,243,255,0.3)]';
+
+      logEvent(`Wave selected: Level ${currentLevel} - ${conf.name}. Gold: ${gold}G, Energy: ${aiEnergy}HP.`, 'cyan');
+      updatePredictedPath();
+    }
+
+    /* ========================================================
+       TILE ARSENAL PALETTE RENDER
+       ======================================================== */
+    function buildTilePalette() {
+      const paletteContainer = document.getElementById('tilePalette');
+      paletteContainer.innerHTML = '';
+
+      const items = ['WALL', 'SWAMP', 'MIRAGE', 'BEACON', 'ERASER'];
+      items.forEach(key => {
+        const tile = TILE_TYPES[key];
+        const btn = document.createElement('button');
+        btn.id = `palette-${key}`;
+        btn.className = `flex items-center justify-between p-2.5 rounded-lg border text-left transition-all ${
+          activeTool === key 
+            ? 'border-cyan-400 bg-cyan-950/60 shadow-[0_0_12px_rgba(0,243,255,0.3)] scale-[1.01]' 
+            : 'border-slate-800 bg-black/40 hover:border-slate-600'
+        }`;
+        
+        btn.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded flex items-center justify-center font-bold text-sm ${tile.colorClass}">
+              ${tile.icon || '⌑'}
+            </div>
+            <div>
+              <div class="font-bold text-xs text-slate-200">${tile.name}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${tile.desc}</div>
+            </div>
+          </div>
+          <div class="text-right font-mono">
+            <span class="text-xs font-bold ${tile.gold > 0 ? 'text-amber-400' : 'text-slate-400'}">
+              ${tile.gold > 0 ? `${tile.gold}G` : (key === 'ERASER' ? 'REFUND' : '0G')}
+            </span>
+          </div>
+        `;
+
+        btn.addEventListener('click', () => {
+          selectPaletteTool(key);
+        });
+
+        paletteContainer.appendChild(btn);
+      });
+    }
+
+    function selectPaletteTool(key) {
+      activeTool = key;
+      const items = ['WALL', 'SWAMP', 'MIRAGE', 'BEACON', 'ERASER'];
+      items.forEach(k => {
+        const el = document.getElementById(`palette-${k}`);
+        if (!el) return;
+        if (k === key) {
+          el.className = 'flex items-center justify-between p-2.5 rounded-lg border text-left transition-all border-cyan-400 bg-cyan-950/60 shadow-[0_0_12px_rgba(0,243,255,0.3)] scale-[1.01]';
+        } else {
+          el.className = 'flex items-center justify-between p-2.5 rounded-lg border text-left transition-all border-slate-800 bg-black/40 hover:border-slate-600';
+        }
+      });
+    }
+
+    /* ========================================================
+       GRID DOM GENERATION
+       ======================================================== */
+    function renderGridDOM() {
+      const gridEl = document.getElementById('gridElement');
+      gridEl.innerHTML = '';
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const cellEl = document.createElement('div');
+          cellEl.id = `cell-${r}-${c}`;
+          cellEl.dataset.r = r;
+          cellEl.dataset.c = c;
+          cellEl.className = 'grid-cell rounded-[3px] border border-slate-800/80 bg-slate-900/80 flex flex-col items-center justify-center cursor-pointer transition';
+
+          // Cell sub-elements
+          // Center Icon
+          const iconSpan = document.createElement('span');
+          iconSpan.className = 'cell-icon text-xs sm:text-sm font-bold z-10 select-none';
+          cellEl.appendChild(iconSpan);
+
+          // Prediction dot
+          const predDot = document.createElement('div');
+          predDot.className = 'pred-dot hidden absolute w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f3ff] z-15 predicted-dot';
+          cellEl.appendChild(predDot);
+
+          // Agent marker
+          const agentMarker = document.createElement('div');
+          agentMarker.className = 'agent-marker hidden absolute inset-0.5 rounded-[2px] bg-gradient-to-tr from-pink-600 to-rose-400 flex items-center justify-center text-[10px] font-black text-black z-20 agent-active shadow-[0_0_12px_#ff0055]';
+          agentMarker.textContent = 'AI';
+          cellEl.appendChild(agentMarker);
+
+          // Brain values overlay
+          const brainInfo = document.createElement('div');
+          brainInfo.className = 'brain-overlay hidden absolute inset-0 flex flex-col justify-between p-0.5 text-[7px] leading-tight font-mono text-cyan-200 pointer-events-none z-12 bg-black/40';
+          brainInfo.innerHTML = `
+            <div class="flex justify-between w-full opacity-80 font-semibold">
+              <span class="f-val text-amber-300">f:--</span>
+            </div>
+            <div class="flex justify-between w-full opacity-70">
+              <span class="g-val text-cyan-300">g:--</span>
+              <span class="h-val text-purple-300">h:--</span>
+            </div>
+          `;
+          cellEl.appendChild(brainInfo);
+
+          // Mouse events for Click & Drag placement
+          cellEl.addEventListener('mousedown', (e) => {
+            if (isExecuting) return;
+            isMouseDown = true;
+            if (e.button === 2) {
+              // Right click -> Quick erase
+              handleCellInteract(r, c, 'ERASER');
+            } else {
+              handleCellInteract(r, c, activeTool);
+            }
+          });
+
+          cellEl.addEventListener('mouseenter', () => {
+            if (isMouseDown && !isExecuting) {
+              handleCellInteract(r, c, activeTool);
+            }
+          });
+
+          cellEl.addEventListener('contextmenu', (e) => e.preventDefault());
+
+          gridEl.appendChild(cellEl);
+        }
+      }
+
+      updateAllCellVisuals();
+    }
+
+    /* ========================================================
+       INTERACTION & PLACEMENT LOGIC
+       ======================================================== */
+    function handleCellInteract(r, c, toolKey) {
+      if (isExecuting) return;
+
+      // Cannot modify Start or Goal
+      if ((r === START_POS.r && c === START_POS.c) || (r === GOAL_POS.r && c === GOAL_POS.c)) {
+        showToast('Start and Treasure Vault points are fixed!');
+        return;
+      }
+
+      const cell = grid[r][c];
+
+      // Handle Eraser / Demolish
+      if (toolKey === 'ERASER') {
+        if (cell.type !== 'EMPTY') {
+          // Refund gold
+          gold += cell.spentGold;
+          logEvent(`Demolished ${TILE_TYPES[cell.type].name} at [${r}, ${c}]. Refunded +${cell.spentGold}G.`, 'slate');
+          cell.type = 'EMPTY';
+          cell.spentGold = 0;
+          cell.revealed = false;
+          updateGoldDisplay();
+          updateCellVisual(r, c);
+          updatePredictedPath();
+        }
+        return;
+      }
+
+      // Check if trying to place the same tile
+      if (cell.type === toolKey) return;
+
+      const targetTile = TILE_TYPES[toolKey];
+      if (!targetTile) return;
+
+      // Calculate cost difference if replacing
+      const refund = cell.spentGold;
+      const netCost = targetTile.gold - refund;
+
+      if (gold < netCost) {
+        showToast(`Insufficient Gold! Need ${netCost}G.`);
+        return;
+      }
+
+      // Pre-flight check: If placing a WALL, verify it does not completely seal the maze!
+      if (toolKey === 'WALL') {
+        const oldType = cell.type;
+        cell.type = 'WALL';
+        const hasPath = checkPathFeasibility();
+        cell.type = oldType; // revert
+
+        if (!hasPath) {
+          showToast('Illegal move! Impassable wall would seal all paths to Treasure Vault.');
+          return;
+        }
+      }
+
+      // Apply placement
+      gold -= netCost;
+      cell.type = toolKey;
+      cell.spentGold = targetTile.gold;
+      cell.revealed = false;
+
+      updateGoldDisplay();
+      updateCellVisual(r, c);
+      logEvent(`Placed ${targetTile.name} at [${r}, ${c}] for ${netCost >= 0 ? '-' + netCost : '+' + (-netCost)}G.`, 'cyan');
+      updatePredictedPath();
+    }
+
+    function updateGoldDisplay() {
+      const el = document.getElementById('goldDisplay');
+      el.textContent = `${gold}G`;
+      if (gold < 15) {
+        el.className = 'text-red-400 font-bold text-sm tracking-wider animate-pulse';
+      } else {
+        el.className = 'text-amber-300 font-bold text-sm tracking-wider';
+      }
+    }
+
+    function showToast(msg) {
+      const container = document.getElementById('toastContainer');
+      const text = document.getElementById('toastMessage');
+      text.textContent = msg;
+      container.classList.remove('opacity-0', 'translate-y-[-10px]');
+      container.classList.add('opacity-100', 'translate-y-0');
+
+      clearTimeout(window.toastTimer);
+      window.toastTimer = setTimeout(() => {
+        container.classList.remove('opacity-100', 'translate-y-0');
+        container.classList.add('opacity-0', 'translate-y-[-10px]');
+      }, 2400);
+    }
+
+    /* ========================================================
+       VISUAL RENDERING OF CELLS
+       ======================================================== */
+    function updateAllCellVisuals() {
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          updateCellVisual(r, c);
+        }
+      }
+    }
+
+    function updateCellVisual(r, c) {
+      const cellEl = document.getElementById(`cell-${r}-${c}`);
+      if (!cellEl) return;
+
+      const cell = grid[r][c];
+      const iconSpan = cellEl.querySelector('.cell-icon');
+      const agentMarker = cellEl.querySelector('.agent-marker');
+
+      // Clear previous classes except base
+      cellEl.className = 'grid-cell rounded-[3px] border relative flex flex-col items-center justify-center cursor-pointer transition';
+
+      // Check special Start & Goal
+      if (r === START_POS.r && c === START_POS.c) {
+        cellEl.classList.add('bg-green-950/70', 'border-green-400', 'text-green-300', 'shadow-[0_0_10px_rgba(34,197,94,0.4)]');
+        iconSpan.textContent = 'S';
+      } else if (r === GOAL_POS.r && c === GOAL_POS.c) {
+        cellEl.classList.add('bg-amber-950/80', 'border-amber-400', 'text-amber-300', 'shadow-[0_0_12px_rgba(245,158,11,0.5)]');
+        iconSpan.textContent = '★';
+      } else {
+        // Tile types
+        if (cell.type === 'WALL') {
+          cellEl.classList.add('bg-cyan-950', 'border-cyan-500', 'text-cyan-300', 'shadow-[inset_0_0_8px_rgba(0,243,255,0.4)]');
+          iconSpan.textContent = '█';
+        } else if (cell.type === 'SWAMP') {
+          cellEl.classList.add('bg-emerald-950/90', 'border-emerald-500/70', 'text-emerald-400', 'shadow-[inset_0_0_6px_rgba(16,185,129,0.3)]');
+          iconSpan.textContent = '≈';
+        } else if (cell.type === 'MIRAGE') {
+          if (cell.revealed) {
+            cellEl.classList.add('bg-pink-950', 'border-pink-500', 'text-pink-300', 'shadow-[0_0_10px_rgba(236,72,153,0.5)]');
+            iconSpan.textContent = '⚡';
+          } else {
+            // Unrevealed mirage looks subtly deceptive (faint purple sheen to architect, but distinct from empty)
+            cellEl.classList.add('bg-purple-950/40', 'border-purple-500/40', 'text-pink-400');
+            iconSpan.textContent = '✦';
+          }
+        } else if (cell.type === 'BEACON') {
+          cellEl.classList.add('bg-amber-950/70', 'border-amber-400', 'text-amber-300', 'shadow-[0_0_10px_rgba(245,158,11,0.4)]');
+          iconSpan.textContent = '▲';
+        } else {
+          // EMPTY
+          cellEl.classList.add('border-slate-800/80', 'bg-slate-900/60', 'hover:bg-slate-800/80', 'text-slate-600');
+          iconSpan.textContent = '';
+        }
+      }
+
+      // Agent Visibility
+      if (agentPosition.r === r && agentPosition.c === c) {
+        agentMarker.classList.remove('hidden');
+      } else {
+        agentMarker.classList.add('hidden');
+      }
+    }
+
+    /* ========================================================
+       BEACON HEURISTIC FIELD CALCULATION
+       Reduces h(n) within 2-tile Manhattan radius by 4 (min 0)
+       ======================================================== */
+    function getActiveBeacons() {
+      const beacons = [];
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (grid[r][c].type === 'BEACON') {
+            beacons.push({ r, c });
+          }
+        }
+      }
+      return beacons;
+    }
+
+    function calculateHeuristic(r, c, beacons) {
+      // Base Manhattan distance to Goal
+      const baseDist = Math.abs(r - GOAL_POS.r) + Math.abs(c - GOAL_POS.c);
+      
+      let discount = 0;
+      for (const b of beacons) {
+        const distToBeacon = Math.abs(r - b.r) + Math.abs(c - b.c);
+        if (distToBeacon <= TILE_TYPES.BEACON.radius) {
+          discount += TILE_TYPES.BEACON.heuristicDiscount;
+        }
+      }
+
+      return Math.max(0, baseDist - discount);
+    }
+
+    /* ========================================================
+       PERCEIVED TILE COST LOOKUP
+       (Determines what the AI *thinks* the cost is)
+       ======================================================== */
+    function getPerceivedCost(r, c, aiPerspective = true) {
+      const cell = grid[r][c];
+
+      if (cell.type === 'WALL') return Infinity;
+
+      // During active run, if AI has discovered a trap at this position
+      const key = `${r},${c}`;
+      if (aiPerspective && aiKnownCosts[key] !== undefined) {
+        return aiKnownCosts[key];
+      }
+
+      // Default perceived costs
+      if (cell.type === 'SWAMP') return TILE_TYPES.SWAMP.perceivedCost; // 5
+      if (cell.type === 'BEACON') return TILE_TYPES.BEACON.perceivedCost; // 1
+      if (cell.type === 'MIRAGE') {
+        // If unrevealed, AI thinks it is 1!
+        return cell.revealed ? TILE_TYPES.MIRAGE.revealedCost : 1;
+      }
+      return 1; // Default empty
+    }
+
+    function getRealDrain(r, c) {
+      const cell = grid[r][c];
+      if (cell.type === 'MIRAGE') return TILE_TYPES.MIRAGE.realDrain; // 12
+      if (cell.type === 'SWAMP') return TILE_TYPES.SWAMP.realDrain; // 5
+      if (cell.type === 'BEACON') return TILE_TYPES.BEACON.realDrain; // 2
+      return 1; // Empty floor
+    }
+
+    /* ========================================================
+       PATHFINDING ALGORITHMS (A*, Dijkstra, Greedy)
+       ======================================================== */
+    function solvePath(start, goal, aiType = 'astar') {
+      const beacons = getActiveBeacons();
+      const openSet = [];
+      const cameFrom = new Map();
+      const gScore = new Map();
+      const fScore = new Map();
+
+      const keyOf = (r, c) => `${r},${c}`;
+      const parseKey = (str) => {
+        const [r, c] = str.split(',').map(Number);
+        return { r, c };
+      };
+
+      const startKey = keyOf(start.r, start.c);
+      gScore.set(startKey, 0);
+
+      const hStart = calculateHeuristic(start.r, start.c, beacons);
+      let fStart = 0;
+      if (aiType === 'greedy') fStart = hStart;
+      else if (aiType === 'dijkstra') fStart = 0;
+      else fStart = hStart; // astar: g(0) + h
+
+      fScore.set(startKey, fStart);
+      openSet.push({ r: start.r, c: start.c, f: fStart, g: 0, h: hStart });
+
+      const closed = new Set();
+      const neighbors = [
+        { dr: -1, dc: 0 },
+        { dr: 1, dc: 0 },
+        { dr: 0, dc: -1 },
+        { dr: 0, dc: 1 }
+      ];
+
+      while (openSet.length > 0) {
+        // Sort by fScore lowest first; tie-break by lowest h
+        openSet.sort((a, b) => {
+          if (a.f === b.f) return a.h - b.h;
+          return a.f - b.f;
+        });
+
+        const current = openSet.shift();
+        const currKey = keyOf(current.r, current.c);
+
+        if (current.r === goal.r && current.c === goal.c) {
+          // Reconstruct path
+          const path = [];
+          let curr = currKey;
+          while (curr) {
+            path.push(parseKey(curr));
+            curr = cameFrom.get(curr);
+          }
+          path.reverse();
+          return { path, gScore, fScore };
+        }
+
+        closed.add(currKey);
+
+        for (const n of neighbors) {
+          const nr = current.r + n.dr;
+          const nc = current.c + n.dc;
+
+          if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
+          const nKey = keyOf(nr, nc);
+          if (closed.has(nKey)) continue;
+
+          const stepCost = getPerceivedCost(nr, nc, true);
+          if (stepCost === Infinity) continue; // Impassable wall
+
+          const tentativeG = (gScore.get(currKey) || 0) + stepCost;
+          const hVal = calculateHeuristic(nr, nc, beacons);
+
+          let fVal = 0;
+          if (aiType === 'greedy') {
+            fVal = hVal; // Pure h(n)
+          } else if (aiType === 'dijkstra') {
+            fVal = tentativeG; // Pure g(n)
+          } else {
+            // A* Search
+            fVal = tentativeG + hVal;
+          }
+
+          if (!gScore.has(nKey) || tentativeG < gScore.get(nKey)) {
+            cameFrom.set(nKey, currKey);
+            gScore.set(nKey, tentativeG);
+            fScore.set(nKey, fVal);
+
+            const existingOpen = openSet.find(item => item.r === nr && item.c === nc);
+            if (existingOpen) {
+              existingOpen.g = tentativeG;
+              existingOpen.f = fVal;
+              existingOpen.h = hVal;
+            } else {
+              openSet.push({ r: nr, c: nc, f: fVal, g: tentativeG, h: hVal });
+            }
+          }
+        }
+      }
+
+      // No path found
+      return { path: null, gScore, fScore };
+    }
+
+    function checkPathFeasibility() {
+      // Fast BFS/A* from Start to Goal to ensure not completely blocked
+      const res = solvePath(START_POS, GOAL_POS, 'astar');
+      return res.path !== null;
+    }
+
+    /* ========================================================
+       PREDICTED PATH UPDATE & TELEMETRY
+       ======================================================== */
+    function updatePredictedPath() {
+      // Clear old path visuals
+      const dots = document.querySelectorAll('.pred-dot');
+      dots.forEach(d => d.classList.add('hidden'));
+
+      const aiConf = AI_LEVELS[currentLevel];
+      const startCoord = isExecuting ? agentPosition : START_POS;
+      const solution = solvePath(startCoord, GOAL_POS, aiConf.type);
+
+      let trapsArmed = 0;
+      let beaconsActive = 0;
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (grid[r][c].type === 'MIRAGE' && !grid[r][c].revealed) trapsArmed++;
+          if (grid[r][c].type === 'BEACON') beaconsActive++;
+        }
+      }
+
+      document.getElementById('statTrapsArmed').textContent = trapsArmed;
+      document.getElementById('statBeacons').textContent = beaconsActive;
+
+      if (!solution.path) {
+        document.getElementById('statPathLen').textContent = 'BLOCKED';
+        document.getElementById('statEstDrain').textContent = '--';
+        return;
+      }
+
+      // Render dotted path
+      let estDrain = 0;
+      solution.path.forEach((pt, idx) => {
+        // Skip current starting point for dot
+        if (idx > 0 && !(pt.r === GOAL_POS.r && pt.c === GOAL_POS.c)) {
+          const cell = document.getElementById(`cell-${pt.r}-${pt.c}`);
+          if (cell) {
+            const dot = cell.querySelector('.pred-dot');
+            if (dot) dot.classList.remove('hidden');
+          }
+        }
+        if (idx > 0) {
+          estDrain += getRealDrain(pt.r, pt.c);
+        }
+      });
+
+      document.getElementById('statPathLen').textContent = solution.path.length - 1;
+      document.getElementById('statEstDrain').textContent = `${estDrain} HP`;
+
+      // Update Brain overlay values if enabled
+      if (brainView) {
+        renderBrainOverlayValues(solution);
+      }
+    }
+
+    /* ========================================================
+       AI BRAIN VIEW OVERLAY
+       Displays f, g, h in cells with subtle heat tint
+       ======================================================== */
+    function renderBrainOverlayValues(solution) {
+      const beacons = getActiveBeacons();
+      const aiConf = AI_LEVELS[currentLevel];
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const cellEl = document.getElementById(`cell-${r}-${c}`);
+          if (!cellEl) continue;
+          const overlay = cellEl.querySelector('.brain-overlay');
+          if (!overlay) continue;
+
+          if (grid[r][c].type === 'WALL') {
+            overlay.innerHTML = '<span class="text-cyan-600 m-auto text-[8px]">WALL</span>';
+            continue;
+          }
+
+          const h = calculateHeuristic(r, c, beacons);
+          const key = `${r},${c}`;
+          const g = solution && solution.gScore.has(key) ? solution.gScore.get(key) : '--';
+          let f = '--';
+          if (solution && solution.fScore.has(key)) {
+            f = solution.fScore.get(key);
+          } else if (aiConf.type === 'greedy') {
+            f = h;
+          }
+
+          overlay.innerHTML = `
+            <div class="flex justify-between w-full opacity-90 font-bold">
+              <span class="f-val text-amber-300">f:${f}</span>
+            </div>
+            <div class="flex justify-between w-full text-[6.5px] opacity-75">
+              <span class="g-val text-cyan-300">g:${g}</span>
+              <span class="h-val text-purple-300">h:${h}</span>
+            </div>
+          `;
+        }
+      }
+    }
+
+    function toggleBrainView() {
+      brainView = !brainView;
+      const btnText = document.getElementById('brainStateText');
+      btnText.textContent = brainView ? 'ON' : 'OFF';
+      
+      const overlays = document.querySelectorAll('.brain-overlay');
+      overlays.forEach(o => {
+        if (brainView) o.classList.remove('hidden');
+        else o.classList.add('hidden');
+      });
+
+      if (brainView) {
+        updatePredictedPath();
+      }
+    }
+
+    /* ========================================================
+       EXECUTION PHASE SIMULATION (STEP-BY-STEP)
+       ======================================================== */
+    function startExecution() {
+      if (isExecuting) return;
+
+      // Validate feasibility
+      if (!checkPathFeasibility()) {
+        showToast('Cannot deploy AI! Treasure Vault is completely blocked.');
+        return;
+      }
+
+      isExecuting = true;
+      agentPosition = { ...START_POS };
+      stepCount = 0;
+      agentTrapsTriggered = 0;
+      aiKnownCosts = {};
+
+      const aiConf = AI_LEVELS[currentLevel];
+      aiEnergy = aiConf.maxEnergy;
+
+      // Update Phase Badges
+      const phaseBadge = document.getElementById('phaseBadge');
+      phaseBadge.textContent = 'EXECUTION PHASE';
+      phaseBadge.className = 'px-2.5 py-0.5 rounded text-xs font-bold tracking-wider font-display uppercase bg-pink-950 border border-pink-400 text-pink-300 shadow-[0_0_12px_rgba(255,0,85,0.4)] animate-pulse';
+
+      document.getElementById('telemetryStatus').textContent = '● ACTIVE INGRESS';
+      document.getElementById('telemetryStatus').className = 'text-[10px] text-pink-400 animate-pulse';
+      document.getElementById('startWaveBtn').disabled = true;
+      document.getElementById('startWaveBtn').classList.add('opacity-50', 'cursor-not-allowed');
+
+      logEvent(`AI Ingress deployed! Agent entering grid at [${START_POS.r}, ${START_POS.c}] with ${aiEnergy}HP...`, 'pink');
+
+      updateAgentInspector();
+      updatePredictedPath();
+      updateAllCellVisuals();
+
+      // Launch Step Loop
+      clearInterval(executionTimer);
+      executionTimer = setInterval(executionStep, executionSpeed);
+    }
+
+    function executionStep() {
+      if (!isExecuting) return;
+
+      const aiConf = AI_LEVELS[currentLevel];
+      // Compute best next move from agentPosition to GOAL
+      const solution = solvePath(agentPosition, GOAL_POS, aiConf.type);
+
+      if (!solution.path || solution.path.length < 2) {
+        // No path or reached goal
+        if (agentPosition.r === GOAL_POS.r && agentPosition.c === GOAL_POS.c) {
+          handleGoalReached();
+        } else {
+          stopExecution();
+          logEvent('AI agent became trapped with no valid paths.', 'amber');
+        }
+        return;
+      }
+
+      // Step to next node
+      const nextNode = solution.path[1];
+      stepCount++;
+      document.getElementById('stepCounter').textContent = `Step: ${stepCount}`;
+
+      agentPosition = { ...nextNode };
+      const currentCell = grid[agentPosition.r][agentPosition.c];
+
+      // Calculate drain
+      let drain = getRealDrain(agentPosition.r, agentPosition.c);
+
+      // Check if stepped on a Hidden Trap
+      if (currentCell.type === 'MIRAGE') {
+        if (!currentCell.revealed) {
+          currentCell.revealed = true;
+          agentTrapsTriggered++;
+          // Reveal to AI Memory!
+          aiKnownCosts[`${agentPosition.r},${agentPosition.c}`] = TILE_TYPES.MIRAGE.revealedCost;
+          logEvent(`💥 TRAP TRIGGERED at [${agentPosition.r}, ${agentPosition.c}]! Drained -${drain} HP. AI updating perceived cost to ${TILE_TYPES.MIRAGE.revealedCost}. Re-pathing...`, 'pink');
+        } else {
+          logEvent(`Agent traversed revealed trap at [${agentPosition.r}, ${agentPosition.c}] (-${drain} HP).`, 'slate');
+        }
+      } else if (currentCell.type === 'SWAMP') {
+        logEvent(`Agent wading through Swamp at [${agentPosition.r}, ${agentPosition.c}] (-${drain} HP).`, 'slate');
+      } else if (currentCell.type === 'BEACON') {
+        logEvent(`Agent triggered Beacon node at [${agentPosition.r}, ${agentPosition.c}] (-${drain} HP).`, 'slate');
+      }
+
+      // Deduct Energy
+      aiEnergy = Math.max(0, aiEnergy - drain);
+      updateEnergyUI();
+      updateAgentInspector();
+      updateCellVisual(agentPosition.r, agentPosition.c);
+      updatePredictedPath();
+
+      // WIN CONDITION: AI Energy <= 0
+      if (aiEnergy <= 0) {
+        handlePlayerVictory();
+        return;
+      }
+
+      // LOSS CONDITION: AI reached Goal with Energy > 0
+      if (agentPosition.r === GOAL_POS.r && agentPosition.c === GOAL_POS.c) {
+        handleAIVictory();
+        return;
+      }
+    }
+
+    function updateEnergyUI() {
+      const aiConf = AI_LEVELS[currentLevel];
+      const pct = Math.max(0, (aiEnergy / aiConf.maxEnergy) * 100);
+      const bar = document.getElementById('energyBar');
+      const text = document.getElementById('energyText');
+
+      bar.style.width = `${pct}%`;
+      text.textContent = `${aiEnergy}/${aiConf.maxEnergy}`;
+
+      if (pct < 30) {
+        bar.className = 'bg-red-500 h-full transition-all duration-200 animate-pulse';
+      } else if (pct < 60) {
+        bar.className = 'bg-amber-500 h-full transition-all duration-200';
+      } else {
+        bar.className = 'bg-gradient-to-r from-pink-500 to-red-400 h-full transition-all duration-200';
+      }
+    }
+
+    function updateAgentInspector() {
+      document.getElementById('inspectCoords').textContent = `[${agentPosition.r}, ${agentPosition.c}]`;
+      const cell = grid[agentPosition.r][agentPosition.c];
+      let typeName = TILE_TYPES[cell.type].name;
+      if (agentPosition.r === START_POS.r && agentPosition.c === START_POS.c) typeName = 'Start Ingress';
+      if (agentPosition.r === GOAL_POS.r && agentPosition.c === GOAL_POS.c) typeName = 'Treasure Vault';
+
+      document.getElementById('inspectTileType').textContent = typeName;
+      document.getElementById('inspectPerceivedCost').textContent = getPerceivedCost(agentPosition.r, agentPosition.c, true);
+      document.getElementById('inspectRemainingHP').textContent = aiEnergy;
+    }
+
+    function handlePlayerVictory() {
+      stopExecution();
+      logEvent(`🏆 ARCHITECT VICTORY! AI Kinetic reserve depleted at [${agentPosition.r}, ${agentPosition.c}].`, 'cyan');
+      showOutcomeModal(true);
+    }
+
+    function handleAIVictory() {
+      stopExecution();
+      logEvent(`💀 MISSION FAILED! AI Explorer breached Treasure Vault with ${aiEnergy}HP remaining.`, 'red');
+      showOutcomeModal(false);
+    }
+
+    function handleGoalReached() {
+      if (aiEnergy > 0) handleAIVictory();
+      else handlePlayerVictory();
+    }
+
+    function stopExecution() {
+      clearInterval(executionTimer);
+      isExecuting = false;
+      document.getElementById('startWaveBtn').disabled = false;
+      document.getElementById('startWaveBtn').classList.remove('opacity-50', 'cursor-not-allowed');
+      document.getElementById('telemetryStatus').textContent = '● STANDBY';
+      document.getElementById('telemetryStatus').className = 'text-[10px] text-green-400';
+    }
+
+    function resetWave() {
+      stopExecution();
+      const aiConf = AI_LEVELS[currentLevel];
+      aiEnergy = aiConf.maxEnergy;
+      agentPosition = { ...START_POS };
+      stepCount = 0;
+      agentTrapsTriggered = 0;
+      aiKnownCosts = {};
+
+      // Hide revealed state of traps for clean re-run
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          grid[r][c].revealed = false;
+        }
+      }
+
+      document.getElementById('stepCounter').textContent = 'Step: 0';
+      document.getElementById('phaseBadge').textContent = 'ARCHITECT PHASE';
+      document.getElementById('phaseBadge').className = 'px-2.5 py-0.5 rounded text-xs font-bold tracking-wider font-display uppercase bg-cyan-950 border border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(0,243,255,0.3)]';
+
+      updateEnergyUI();
+      updateAgentInspector();
+      updateAllCellVisuals();
+      updatePredictedPath();
+      logEvent('Wave reset. System primed in Architect Phase.', 'slate');
+    }
+
+    function clearGrid() {
+      if (isExecuting) return;
+      resetGridState();
+      gold = AI_LEVELS[currentLevel].budget;
+      updateGoldDisplay();
+      updateAllCellVisuals();
+      updatePredictedPath();
+      logEvent('Grid completely cleared. 100% Gold refunded.', 'amber');
+    }
+
+    /* ========================================================
+       MODAL & OUTCOME HANDLING
+       ======================================================== */
+    function showOutcomeModal(isVictory) {
+      const modal = document.getElementById('outcomeModal');
+      const card = document.getElementById('modalCard');
+      const icon = document.getElementById('modalIconContainer');
+      const title = document.getElementById('modalTitle');
+      const subtitle = document.getElementById('modalSubtitle');
+
+      const conf = AI_LEVELS[currentLevel];
+      document.getElementById('modalLevel').textContent = `L${currentLevel} - ${conf.name}`;
+      document.getElementById('modalSteps').textContent = stepCount;
+      document.getElementById('modalTraps').textContent = agentTrapsTriggered;
+      document.getElementById('modalEnergy').textContent = `${aiEnergy} / ${conf.maxEnergy}`;
+
+      if (isVictory) {
+        card.className = 'bg-[#0b1625] border-2 border-cyan-400 rounded-2xl max-w-md w-full p-6 text-center shadow-[0_0_30px_rgba(0,243,255,0.4)] relative overflow-hidden font-mono';
+        icon.className = 'w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 text-3xl bg-cyan-950 border border-cyan-400 text-cyan-300 shadow-[0_0_15px_#00f3ff]';
+        icon.textContent = '⚡';
+        title.textContent = 'ARCHITECT TRIUMPH';
+        title.className = 'font-display font-bold text-2xl uppercase tracking-wider mb-2 text-cyan-400';
+        subtitle.textContent = `You outmaneuvered the AI! The explorer's neural heuristic failed and its power core reached absolute zero.`;
+        document.getElementById('modalNextBtn').textContent = currentLevel < 3 ? 'Next Wave' : 'Play Again';
+      } else {
+        card.className = 'bg-[#180a11] border-2 border-red-500 rounded-2xl max-w-md w-full p-6 text-center shadow-[0_0_30px_rgba(239,68,68,0.4)] relative overflow-hidden font-mono';
+        icon.className = 'w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 text-3xl bg-red-950 border border-red-500 text-red-300 shadow-[0_0_15px_#ef4444]';
+        icon.textContent = '💀';
+        title.textContent = 'VAULT COMPROMISED';
+        title.className = 'font-display font-bold text-2xl uppercase tracking-wider mb-2 text-red-400';
+        subtitle.textContent = `The AI Explorer reached the Treasure Vault with ${aiEnergy}HP kinetic energy remaining. Reconfigure your maze!`;
+        document.getElementById('modalNextBtn').textContent = 'Retry Wave';
+      }
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modal.classList.add('opacity-100');
+      }, 10);
+    }
+
+    function hideModal() {
+      const modal = document.getElementById('outcomeModal');
+      modal.classList.remove('opacity-100');
+      modal.classList.add('opacity-0');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 300);
+    }
+
+    /* ========================================================
+       NEURAL LOGGING STREAM
+       ======================================================== */
+    function logEvent(text, color = 'slate') {
+      const stream = document.getElementById('logStream');
+      const entry = document.createElement('div');
+      
+      let colorClass = 'text-slate-400';
+      if (color === 'cyan') colorClass = 'text-cyan-400';
+      if (color === 'pink') colorClass = 'text-pink-400 font-semibold';
+      if (color === 'amber') colorClass = 'text-amber-400';
+      if (color === 'red') colorClass = 'text-red-400 font-bold';
+
+      const time = new Date().toLocaleTimeString().split(' ')[0];
+      entry.className = `${colorClass} text-[11px] leading-tight flex gap-1.5`;
+      entry.innerHTML = `<span class="text-slate-600 select-none">[${time}]</span> <span>${text}</span>`;
+
+      stream.appendChild(entry);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    /* ========================================================
+       EVENT LISTENERS & BINDINGS
+       ======================================================== */
+    function setupEventListeners() {
+      window.addEventListener('mouseup', () => {
+        isMouseDown = false;
+      });
+
+      // Level select change
+      document.getElementById('levelSelect').addEventListener('change', (e) => {
+        if (isExecuting) stopExecution();
+        applyLevelSettings(e.target.value);
+      });
+
+      // Start Wave button
+      document.getElementById('startWaveBtn').addEventListener('click', () => {
+        startExecution();
+      });
+
+      // Reset Wave button
+      document.getElementById('resetWaveBtn').addEventListener('click', () => {
+        resetWave();
+      });
+
+      // Clear Grid button
+      document.getElementById('clearAllBtn').addEventListener('click', () => {
+        clearGrid();
+      });
+
+      // AI Brain View button
+      document.getElementById('toggleBrainBtn').addEventListener('click', () => {
+        toggleBrainView();
+      });
+
+      // Speed button
+      document.getElementById('speedBtn').addEventListener('click', () => {
+        const speedBtn = document.getElementById('speedBtn');
+        if (executionSpeed === 250) {
+          executionSpeed = 100;
+          speedBtn.textContent = '2x Speed';
+          speedBtn.className = 'px-2 py-1 text-xs rounded font-mono font-semibold border border-cyan-400 bg-cyan-950 text-cyan-300';
+        } else {
+          executionSpeed = 250;
+          speedBtn.textContent = '1x Speed';
+          speedBtn.className = 'px-2 py-1 text-xs rounded font-mono font-semibold border border-slate-700 bg-slate-900 text-slate-300';
+        }
+        if (isExecuting) {
+          clearInterval(executionTimer);
+          executionTimer = setInterval(executionStep, executionSpeed);
+        }
+      });
+
+      // Clear Log
+      document.getElementById('clearLogBtn').addEventListener('click', () => {
+        document.getElementById('logStream').innerHTML = '';
+      });
+
+      // Modal buttons
+      document.getElementById('modalReplayBtn').addEventListener('click', () => {
+        hideModal();
+        resetWave();
+      });
+
+      document.getElementById('modalNextBtn').addEventListener('click', () => {
+        hideModal();
+        if (currentLevel < 3) {
+          currentLevel++;
+          document.getElementById('levelSelect').value = currentLevel;
+          applyLevelSettings(currentLevel);
+        } else {
+          resetWave();
+        }
+      });
+    }
+
+    // Run game on DOM load
+    window.addEventListener('DOMContentLoaded', () => {
+      initGame();
+    });
+  </script>
+</body>
+</html>
